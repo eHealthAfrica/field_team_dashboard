@@ -1,0 +1,51 @@
+name: Build and Deploy
+
+# Runs on push, and also on its own schedule: commits pushed by the fetch
+# workflow use GITHUB_TOKEN, which does not trigger other workflows.
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '10 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Copy latest data into public
+        run: |
+          mkdir -p public/data
+          cp data/*.json public/data/
+
+      - run: npm run build
+
+      - uses: actions/configure-pages@v4
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
