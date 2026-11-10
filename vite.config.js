@@ -1,8 +1,9 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// base must match the GitHub Pages path: https://ehealthafrica.github.io/field_team_dashboard/
 export default defineConfig({
   plugins: [react()],
-  base: '/field_team_dashboard/',
+  // GitHub Pages serves the site under /field_team_dashboard/; the ERITAS
+  // container sets BASE_PATH=/ because it has its own subdomain.
+  base: process.env.BASE_PATH || '/field_team_dashboard/',
 })

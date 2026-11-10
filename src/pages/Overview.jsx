@@ -27,6 +27,23 @@ function dayStats(rows, roster) {
   }
 }
 
+// Period-level indicators: rate = days checked in / (coordinators x days),
+// each coordinator counted once per day.
+function periodStats(rows, roster, nDays) {
+  const sd = staffDays(rows).size
+  const atPost = rows.filter(r => AT_POST.has(r.status)).length
+  return {
+    checkedIn: sd,
+    expected: roster.length * nDays,
+    rate: pct(sd, roster.length * nDays),
+    checkins: rows.length,
+    atPostPct: pct(atPost, rows.length),
+    unverified: rows.filter(r => r.status === 'outside_not_redeployed').length,
+    oldFormOutside: rows.filter(r => r.status === 'outside_old_form').length,
+    cleanPct: pct(rows.filter(r => !r.flags.length).length, rows.length),
+  }
+}
+
 function Delta({ now, prev, unit = 'pts', invert = false }) {
   if (prev == null || now == null) return null
   const d = now - prev
@@ -41,7 +58,7 @@ function Delta({ now, prev, unit = 'pts', invert = false }) {
   )
 }
 
-function HeroStat({ label, value, suffix, delta, spark, sparkDomain, note }) {
+function HeroStat({ label, value, suffix, delta, spark, sparkDomain, note, periodNote }) {
   return (
     <div className="card animate-fade-up" style={{ padding: '9px 14px 9px', display: 'flex', flexDirection: 'column', gap: 1 }}>
       <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-2)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</div>
@@ -52,7 +69,7 @@ function HeroStat({ label, value, suffix, delta, spark, sparkDomain, note }) {
         </div>
         {spark && <Sparkline values={spark} domain={sparkDomain} width={96} height={26} />}
       </div>
-      <div style={{ minHeight: 15, fontSize: 11.5 }}>{delta}</div>
+      <div style={{ minHeight: 15, fontSize: 11.5 }}>{periodNote ? <span style={{ color: 'var(--ink-3)', fontSize: 11 }}>{periodNote}</span> : delta}</div>
       {note && <div style={{ fontSize: 10.5, color: 'var(--ink-3)' }}>{note}</div>}
     </div>
   )
@@ -111,23 +128,29 @@ export default function Overview({ rows, data, roster, range, filters, setFilter
   const scope = useMemo(() => ({ state: filters.state, role: filters.role }), [filters.state, filters.role])
   const rowsOn = d => filterRows(rows, scope, { from: d, to: d })
 
-  const today = useMemo(() => dayStats(rowsOn(day), roster), [rows, roster, day, scope])
+  // A single day shows that day (with change vs the day before); a longer
+  // period shows the whole period.
+  const isPeriod = range.from !== range.to
+  const periodLabel = isPeriod ? `${fmtDate(range.from)} – ${fmtDate(range.to)}` : fmtDate(day)
+  const today = useMemo(() => isPeriod ? periodStats(data, roster, days.length) : dayStats(rowsOn(day), roster),
+    [rows, data, roster, range, scope])
   const yday = useMemo(() => {
+    if (isPeriod) return null
     const r = rowsOn(prevDay); return r.length ? dayStats(r, roster) : null
-  }, [rows, roster, prevDay, scope])
+  }, [rows, roster, prevDay, scope, isPeriod])
   const series = useMemo(() => days.map(d => ({ date: d, ...dayStats(rowsOn(d), roster) })), [rows, roster, range, scope])
 
-  // Per-state view for the map and table (latest day + trend over the period).
+  // Per-state view for the map and table (selected period, or the single day).
   const states = useMemo(() => {
     const names = [...new Set(roster.map(s => s.state))].sort()
     return names.map(state => {
       const ro = roster.filter(s => s.state === state)
-      const d = dayStats(rowsOn(day).filter(r => r.state === state), ro)
-      const trend = days.map(dd => pct(new Set(rowsOn(dd).filter(r => r.state === state).map(r => r.uid || r.who)).size, ro.length))
       const period = data.filter(r => r.state === state)
+      const d = isPeriod ? periodStats(period, ro, days.length) : dayStats(rowsOn(day).filter(r => r.state === state), ro)
+      const trend = days.map(dd => pct(new Set(rowsOn(dd).filter(r => r.state === state).map(r => r.uid || r.who)).size, ro.length))
       return {
         state, coordinators: ro.length, ...d, trend,
-        periodRate: pct(staffDays(period).size, ro.length * days.length),
+        latestRate: pct(new Set(rowsOn(day).filter(r => r.state === state).map(r => r.uid || r.who)).size, ro.length),
         issues: period.filter(r => r.security || r.critical).length,
         flaggedPct: pct(period.filter(r => r.flags.length).length, period.length),
       }
@@ -172,13 +195,14 @@ export default function Overview({ rows, data, roster, range, filters, setFilter
     if (today.unverified) out.push({
       sev: 'warning', page: 'issues',
       title: `${today.unverified} check-in${today.unverified > 1 ? 's' : ''} outside the LGA without redeployment`,
-      body: `On ${fmtDate(day)}. Reasons given are listed under Issues.`,
+      body: `${isPeriod ? `Between ${periodLabel}` : `On ${fmtDate(day)}`}. Reasons given are listed under Issues.`,
     })
     // Count people, not check-ins (some coordinators submit more than once a day).
+    // Always the latest day: it is about who still needs to update the form now.
     const oldToday = [...new Set(rowsOn(day).filter(r => r.old_form).map(r => r.uid || r.who))]
     if (oldToday.length) out.push({
       sev: 'info', page: null,
-      title: `${oldToday.length} coordinator${oldToday.length > 1 ? 's' : ''} still on an old form version`,
+      title: `${oldToday.length} coordinator${oldToday.length > 1 ? 's' : ''} still on an old form version (${fmtDate(day)})`,
       body: 'Old versions cannot record redeployment. Ask them to update the form in Kobo Collect.',
     })
     const flagCounts = {}
@@ -192,11 +216,11 @@ export default function Overview({ rows, data, roster, range, filters, setFilter
     const low = [...states].filter(s => s.coordinators).sort((a, b) => a.rate - b.rate).slice(0, 3)
     if (low.length > 1) out.push({
       sev: 'info', page: 'attendance',
-      title: 'Lowest check-in rates today',
+      title: isPeriod ? 'Lowest check-in rates in this period' : `Lowest check-in rates on ${fmtDate(day)}`,
       body: low.map(s => `${s.state} ${s.rate}%`).join(' · '),
     })
     return out
-  }, [states, rows, data, roster, range, scope])
+  }, [states, rows, data, roster, range, scope, today])
 
   const rateSpark = series.map(s => s.rate)
   const nStates = states.length
@@ -204,8 +228,10 @@ export default function Overview({ rows, data, roster, range, filters, setFilter
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {/* Headline narration */}
-      <Narrative eyebrow={fmtDay(day)}
-        lead={`${today.rate}% of field coordinators checked in (${today.checkedIn} of ${roster.length}).`}>
+      <Narrative eyebrow={isPeriod ? `${fmtDate(range.from)} – ${fmtDate(range.to, true)} · ${days.length} days` : fmtDay(day)}
+        lead={isPeriod
+          ? `Coordinators checked in on ${today.rate}% of expected days (${today.checkedIn.toLocaleString()} of ${today.expected.toLocaleString()}).`
+          : `${today.rate}% of field coordinators checked in (${today.checkedIn} of ${roster.length}).`}>
         {nStates > 1 && (() => {
           const sorted = [...states].sort((a, b) => a.rate - b.rate)
           const lo = sorted[0], hi = sorted[sorted.length - 1]
@@ -217,25 +243,25 @@ export default function Overview({ rows, data, roster, range, filters, setFilter
 
       {/* Hero indicators */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
-        <HeroStat label="Coordinators checked in" value={today.rate} suffix="%"
+        <HeroStat periodNote={isPeriod ? `Across ${periodLabel} · daily trend` : null} label={isPeriod ? 'Check-in rate (period)' : 'Coordinators checked in'} value={today.rate} suffix="%"
           delta={<Delta now={today.rate} prev={yday?.rate} />} spark={rateSpark} sparkDomain={[0, 100]}
-          note={`${today.checkedIn} of ${roster.length} coordinators`} />
-        <HeroStat label="At assigned post" value={today.atPostPct} suffix="%"
+          note={isPeriod ? `${today.checkedIn.toLocaleString()} of ${today.expected.toLocaleString()} coordinator-days` : `${today.checkedIn} of ${roster.length} coordinators`} />
+        <HeroStat periodNote={isPeriod ? `Across ${periodLabel} · daily trend` : null} label="At assigned post" value={today.atPostPct} suffix="%"
           delta={<Delta now={today.atPostPct} prev={yday?.atPostPct} />} spark={series.map(s => s.checkins ? s.atPostPct : null)} sparkDomain={[0, 100]}
           note="Inside own LGA or verified redeployment" />
-        <HeroStat label="Outside LGA, not redeployed" value={today.unverified}
+        <HeroStat periodNote={isPeriod ? `Across ${periodLabel} · daily trend` : null} label="Outside LGA, not redeployed" value={today.unverified}
           delta={<Delta now={today.unverified} prev={yday?.unverified} unit="" invert />} spark={series.map(s => s.unverified)}
-          note={today.oldFormOutside ? `+${today.oldFormOutside} on old form version (status unknown)` : 'No release code entered'} />
-        <HeroStat label="Passing quality checks" value={today.cleanPct} suffix="%"
+          note={`${isPeriod ? 'Check-ins in period' : 'No release code entered'}${today.oldFormOutside ? ` · +${today.oldFormOutside} on old form` : ''}`} />
+        <HeroStat periodNote={isPeriod ? `Across ${periodLabel} · daily trend` : null} label="Passing quality checks" value={today.cleanPct} suffix="%"
           delta={<Delta now={today.cleanPct} prev={yday?.cleanPct} />} spark={series.map(s => s.checkins ? s.cleanPct : null)} sparkDomain={[0, 100]}
           note="24 automated checks built into the form" />
       </div>
 
       {/* Map + attention */}
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.08fr) minmax(320px, 1fr)', gap: 10, alignItems: 'stretch' }}>
-        <ChartCard title="Check-in rate by state" desc={`${fmtDate(day, true)} · click a state to focus the dashboard on it.`}>
+        <ChartCard title="Check-in rate by state" desc={`${isPeriod ? `${periodLabel} (days checked in ÷ expected)` : fmtDate(day, true)} · click a state to focus the dashboard on it.`}>
           <NigeriaMap
-            stats={states.map(s => ({ state: s.state, value: s.rate, detail: `${s.checkedIn} of ${s.coordinators} coordinators · ${s.atPostPct}% at post` }))}
+            stats={states.map(s => ({ state: s.state, value: s.rate, detail: isPeriod ? `${s.checkedIn} of ${s.expected} coordinator-days · ${s.atPostPct}% at post` : `${s.checkedIn} of ${s.coordinators} coordinators · ${s.atPostPct}% at post` }))}
             selected={filters.state === 'all' ? null : filters.state}
             onSelect={st => setFilters({ ...filters, state: filters.state === st ? 'all' : st })}
             metricLabel="Check-in rate"
@@ -258,18 +284,18 @@ export default function Overview({ rows, data, roster, range, filters, setFilter
 
       {/* State comparison */}
       <ChartCard title="State comparison" pad={false}
-        desc={`Sorted by check-in rate on ${fmtDate(day)}. Hover a column name for its definition; click a row to focus on a state.`}>
+        desc={`Sorted by check-in rate (${periodLabel}). Hover a column name for its definition; click a row to focus on a state.`}>
         <div className="scroll-box" style={{ overflow: 'auto', maxHeight: 340 }}>
           <table className="tbl">
             <thead>
               <tr>
                 <HelpTh help="Programme state. Click a row to focus the whole dashboard on that state.">State</HelpTh>
                 <HelpTh className="num" help="Coordinators on the roster for this state (LGA Coordinators plus the State Coordinator), each expected to check in once a day.">Coordinators</HelpTh>
-                <HelpTh help={`Share of the state's coordinators who checked in at least once on ${fmtDate(day)}. Bar colours match the map.`}>Check-in rate · {fmtDate(day)}</HelpTh>
+                <HelpTh help={isPeriod ? `Days checked in ÷ (coordinators × ${days.length} days), each coordinator counted once per day. Bar colours match the map.` : `Share of the state's coordinators who checked in at least once on ${fmtDate(day)}. Bar colours match the map.`}>Check-in rate · {periodLabel}</HelpTh>
                 <HelpTh help={`Daily check-in rate from ${fmtDate(range.from)} to ${fmtDate(range.to)}. The dot is the latest day.`}>Trend</HelpTh>
-                <HelpTh className="num" help="Check-in rate across the whole selected period: days checked in ÷ (coordinators × days). Each coordinator counts once per day.">Period rate</HelpTh>
-                <HelpTh className="num" help={`Share of check-ins on ${fmtDate(day)} where the form's GPS boundary check placed the coordinator inside their own LGA, or they entered a valid redeployment code.`}>At post</HelpTh>
-                <HelpTh className="num" help={`Check-ins on ${fmtDate(day)} outside the coordinator's LGA with no redeployment code entered. Their reasons are listed on the Issues page.`}>Outside, not redeployed</HelpTh>
+                {isPeriod && <HelpTh className="num" help={`Share of the state's coordinators who checked in on the last day of the period (${fmtDate(day)}).`}>{fmtDate(day)}</HelpTh>}
+                <HelpTh className="num" help={`Share of check-ins (${periodLabel}) where the form's GPS boundary check placed the coordinator inside their own LGA, or they entered a valid redeployment code.`}>At post</HelpTh>
+                <HelpTh className="num" help={`Check-ins (${periodLabel}) outside the coordinator's LGA with no redeployment code entered. Their reasons are listed on the Issues page.`}>Outside, not redeployed</HelpTh>
                 <HelpTh className="num" help="Share of the period's check-ins that triggered at least one of the form's automated quality checks (e.g. same GPS as the previous day, summary copied). A flag means review, not proof of a problem.">Quality flagged</HelpTh>
                 <HelpTh className="num" help="Security or access incidents plus critical issues escalated to the State team, reported in the selected period.">Security / critical</HelpTh>
               </tr>
@@ -282,7 +308,7 @@ export default function Overview({ rows, data, roster, range, filters, setFilter
                   <td className="num">{s.coordinators}</td>
                   <td><RateBar value={s.rate} /></td>
                   <td><Sparkline values={s.trend} width={90} height={22} domain={[0, 100]} /></td>
-                  <td className="num">{s.periodRate}%</td>
+                  {isPeriod && <td className="num">{s.latestRate}%</td>}
                   <td className="num">{s.checkins ? `${s.atPostPct}%` : '–'}</td>
                   <td className="num" style={{ color: s.unverified ? 'var(--crit-ink)' : 'var(--ink-4)', fontWeight: s.unverified ? 600 : 400 }}>{s.unverified || '–'}</td>
                   <td className="num">{s.flaggedPct ? `${s.flaggedPct}%` : '–'}</td>

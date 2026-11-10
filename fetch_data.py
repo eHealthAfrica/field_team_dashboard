@@ -29,7 +29,7 @@ from urllib.request import Request, urlopen
 KOBO_BASE = "https://kf.kobotoolbox.org"
 ASSET_UID = "aV89vgirjJgfzTNDBDGGzE"
 ROSTER_MEDIA = "c_data.csv"
-DATA_DIR = "data"
+DATA_DIR = os.environ.get("DATA_DIR", "data")   # the ERITAS container writes straight into the served folder
 WAT = timezone(timedelta(hours=1))
 
 
@@ -42,12 +42,12 @@ def load_dotenv(path=".env"):
     with open(path, encoding="utf-8") as fh:
         for line in fh:
             k, _, v = line.strip().partition("=")
-            if k.strip() == "KOBO_TOKEN" and v.strip():
+            if k.strip() in ("KOBO_TOKEN", "kobo_token") and v.strip():
                 os.environ["KOBO_TOKEN"] = v.strip().strip('"').strip("'")
 
 
 load_dotenv()
-TOKEN = os.environ.get("KOBO_TOKEN", "")
+TOKEN = os.environ.get("KOBO_TOKEN") or os.environ.get("kobo_token", "")
 if not TOKEN:
     print("ERROR: KOBO_TOKEN environment variable not set.", file=sys.stderr)
     sys.exit(1)
@@ -289,8 +289,10 @@ def debug_first(raw):
 def write(name, payload):
     os.makedirs(DATA_DIR, exist_ok=True)
     path = os.path.join(DATA_DIR, name)
-    with open(path, "w", encoding="utf-8") as fh:
+    tmp = path + ".tmp"   # write then rename, so a page load never reads a half-written file
+    with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(payload, fh, ensure_ascii=False, separators=(",", ":"))
+    os.replace(tmp, path)
     print(f"  wrote {path}")
 
 

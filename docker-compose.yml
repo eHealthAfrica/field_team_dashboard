@@ -1,0 +1,10 @@
+# Used by ERITAS (push-to-deploy). ERITAS routes its subdomain to port 80
+# and supplies kobo_token from the project's environment settings.
+services:
+  web:
+    build: .
+    expose:
+      - "80"
+    environment:
+      KOBO_TOKEN: ${kobo_token:-}
+    restart: unless-stopped
