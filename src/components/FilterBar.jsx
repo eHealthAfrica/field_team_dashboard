@@ -1,4 +1,4 @@
-import { Eye, EyeOff } from 'lucide-react'
+import { Eye, EyeOff, X } from 'lucide-react'
 import { ROLES, fmtDate } from '../utils/data'
 
 const RANGES = [
@@ -12,12 +12,26 @@ const eyeBtn = {
   border: '1px solid var(--line)', background: '#fff', color: 'var(--ink-2)', fontSize: 12.5, fontWeight: 500, fontFamily: 'inherit',
 }
 
+// The default view - what "Clear filters" returns to.
+export const DEFAULT_FILTERS = { range: 'all', state: 'all', role: 'all', coord: 'all', from: '', to: '' }
+const isFiltered = f => f.range !== 'all' || f.state !== 'all' || f.role !== 'all' || (f.coord && f.coord !== 'all')
+
+function ClearButton({ filters, onChange }) {
+  if (!isFiltered(filters)) return null
+  return (
+    <button onClick={() => onChange({ ...DEFAULT_FILTERS })} title="Back to All time, all states, all roles"
+      style={{ ...eyeBtn, color: 'var(--eha-blue-ink)', borderColor: 'var(--eha-blue-40)', background: 'var(--eha-blue-10)' }}>
+      <X size={14} /> Clear filters
+    </button>
+  )
+}
+
 export function periodLabel(range) {
   return range.from === range.to ? fmtDate(range.from, true) : `${fmtDate(range.from)} – ${fmtDate(range.to, true)}`
 }
 
 // Slim bar shown when the filter panel is hidden: says what is still applied.
-export function HiddenFilters({ filters, staff = [], range, onShow }) {
+export function HiddenFilters({ filters, staff = [], range, onShow, onChange }) {
   const coord = filters.coord && filters.coord !== 'all' ? staff.find(s => s.id === filters.coord) : null
   const parts = [
     { latest: 'Latest day', all: 'All time', custom: 'Custom period' }[filters.range] || 'All time',
@@ -31,6 +45,7 @@ export function HiddenFilters({ filters, staff = [], range, onShow }) {
         <Eye size={15} /> Show filters
       </button>
       <span>{parts.join(' · ')} · <strong style={{ color: 'var(--ink)', fontWeight: 600 }}>{periodLabel(range)}</strong></span>
+      {onChange && <ClearButton filters={filters} onChange={onChange} />}
     </div>
   )
 }
@@ -88,6 +103,8 @@ export default function FilterBar({ filters, onChange, states, staff = [], range
           ))
         })()}
       </select>
+
+      <ClearButton filters={filters} onChange={onChange} />
 
       <span style={{ marginLeft: 'auto', fontSize: 12.5, color: 'var(--ink-3)' }}>
         Showing <strong style={{ color: 'var(--ink)', fontWeight: 600 }}>{period}</strong>

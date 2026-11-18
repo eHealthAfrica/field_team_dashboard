@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import Sidebar, { NAV, SIDEBAR_W, SIDEBAR_COLLAPSED } from './components/Sidebar'
 import TopBar from './components/TopBar'
 import ReportModal from './components/ReportModal'
-import FilterBar, { HiddenFilters } from './components/FilterBar'
+import FilterBar, { HiddenFilters, DEFAULT_FILTERS } from './components/FilterBar'
 import Overview from './pages/Overview'
 import Attendance from './pages/Attendance'
 import Outputs from './pages/Outputs'
@@ -38,7 +38,7 @@ export default function App() {
   const [showFilters, setShowFilters] = useState(false)
   const [showReport, setShowReport] = useState(false)
   const toggleFilters = v => setShowFilters(v)
-  const [filters, setFilters] = useState({ range: 'all', state: 'all', role: 'all', coord: 'all', from: '', to: '' })
+  const [filters, setFilters] = useState({ ...DEFAULT_FILTERS })
   const { rows, staff, fetchedAt, loading, loaded, error, refresh } = useData()
 
   const states = useMemo(() => [...new Set(staff.map(s => s.state))].sort(), [staff])
@@ -74,7 +74,7 @@ export default function App() {
             <div style={{ marginBottom: 8 }}>
               {showFilters
                 ? <FilterBar filters={filters} onChange={setFilters} states={states} staff={staff} range={range} bounds={bounds} onHide={() => toggleFilters(false)} />
-                : <HiddenFilters filters={filters} staff={staff} range={range} onShow={() => toggleFilters(true)} />}
+                : <HiddenFilters filters={filters} staff={staff} range={range} onShow={() => toggleFilters(true)} onChange={setFilters} />}
             </div>
           )}
 
