@@ -55,7 +55,7 @@ RULE_TEXT = {
 DQ_FLAG_GROUPS = {
     "GPS precision / implausible location": ["same_gps_as_last", "far_from_last", "moved_during_form", "far_outside"],
     "Duplicate / suspicious submissions": ["copied_from_last", "other_user_on_phone", "rushed", "open_too_long"],
-    "Incorrect phone date/time": ["clock_moved_back", "finished_other_day", "odd_hour"],
+    "Incorrect phone date/time": ["clock_moved_back", "finished_other_day", "date_after_submission", "odd_hour"],
     "Other validation issues": ["retrieved_gt_issued", "tracks_gt_deployed", "charge_ne_deployed", "qc_gt_deployed",
                                 "settlements_lt_wards", "mlos_new_gt_validated", "teams_gt_phones", "all_phones_faulty",
                                 "many_activities", "many_wards", "meeting_only_day", "outside_field_work",
@@ -182,7 +182,10 @@ def analyse(staff, recs, start, end, as_of, expected_cfg, failed_logins):
     # The standard (22 of a ~31-day cycle) scales in proportion when only part of
     # the cycle has data - a new form, or a draft before the 23rd.
     cycle_days = (end - start).days + 1
-    expected = expected_cfg if len(live_days) >= cycle_days else \n        max(1, min(len(live_days), round(expected_cfg * len(live_days) / cycle_days)))
+    if len(live_days) >= cycle_days:
+        expected = expected_cfg
+    else:
+        expected = max(1, min(len(live_days), round(expected_cfg * len(live_days) / cycle_days)))
 
     by_uid = collections.defaultdict(list)
     for x in recs:
@@ -239,15 +242,17 @@ def analyse(staff, recs, start, end, as_of, expected_cfg, failed_logins):
 
     # Data quality
     flag_n = collections.Counter(f for x in recs for f in x["flags"])
+    def with_any(group):   # records carrying at least one flag in the group
+        return sum(1 for x in recs if any(f in DQ_FLAG_GROUPS[group] for f in x["flags"]))
     dq = [
         ("Missing consultant name", failed_logins, "Login not matched to the roster; form cannot be submitted as a named consultant"),
         ("Missing phone number", 0, "Blocked by the form (pre-flight check)"),
-        ("Incorrect phone date/time", sum(flag_n[f] for f in DQ_FLAG_GROUPS["Incorrect phone date/time"]), "Form flags: clock set back, finished another day, odd hour"),
+        ("Incorrect phone date/time", with_any("Incorrect phone date/time"), "Form flags: clock set back, finished another day, odd hour"),
         ("Missing coordinates", sum(not x["gps_ok"] for x in recs), "GPS is mandatory in the form"),
-        ("GPS precision / implausible location", sum(flag_n[f] for f in DQ_FLAG_GROUPS["GPS precision / implausible location"]), "Same GPS as last, >50 km jump, moved during form, >20 km outside"),
+        ("GPS precision / implausible location", with_any("GPS precision / implausible location"), "Same GPS as last, >50 km jump, moved during form, >20 km outside"),
         ("Missing / unusable photo evidence", sum(not x["selfie"] for x in recs), "Selfie with a random gesture is mandatory"),
-        ("Duplicate / suspicious submissions", sum(x["reason"] == "duplicate" for x in recs) + sum(flag_n[f] for f in DQ_FLAG_GROUPS["Duplicate / suspicious submissions"]), "Same-day repeats, copied summary, shared phone, rushed or left open"),
-        ("Other validation issues", sum(flag_n[f] for f in DQ_FLAG_GROUPS["Other validation issues"]), "Consistency and plausibility checks built into the form"),
+        ("Duplicate / suspicious submissions", sum(1 for x in recs if x["reason"] == "duplicate" or any(f in DQ_FLAG_GROUPS["Duplicate / suspicious submissions"] for f in x["flags"])), "Same-day repeats, copied summary, shared phone, rushed or left open"),
+        ("Other validation issues", with_any("Other validation issues"), "Consistency and plausibility checks built into the form"),
     ]
 
     # Activities by state (activity-days) and outputs (each LGA counted once per day)
