@@ -122,7 +122,8 @@ export function analyseCycle({ rows, staff, cycle, state = 'all', expectedDays =
 
   // Data quality (dimensions from the PM template, mapped to this form)
   const fc = {}; recs.forEach(x => x.flags.forEach(f => { fc[f] = (fc[f] || 0) + 1 }))
-  const sumF = list => list.reduce((n, f) => n + (fc[f] || 0), 0)
+  // Records with at least one of the flags (a record can carry several flags)
+  const sumF = list => recs.filter(x => x.flags.some(f => list.includes(f))).length
   const dq = [
     ['Missing consultant name', 0, 'Blocked by the form: login must match the roster'],
     ['Missing phone number', 0, 'Blocked by the form (pre-flight check)'],
@@ -130,7 +131,7 @@ export function analyseCycle({ rows, staff, cycle, state = 'all', expectedDays =
     ['Missing coordinates', 0, 'GPS is mandatory in the form'],
     ['GPS precision / implausible location', sumF(['same_gps_as_last', 'far_from_last', 'moved_during_form', 'far_outside']), 'Same GPS as last, >50 km jump, moved during form, >20 km outside'],
     ['Missing / unusable photo evidence', recs.filter(x => x.selfie === false).length, 'Check-ins with no selfie attached'],
-    ['Duplicate / suspicious submissions', recs.filter(x => x.reason === 'duplicate').length + sumF(['copied_from_last', 'other_user_on_phone', 'rushed', 'open_too_long']), 'Same-day repeats, copied summary, shared phone, rushed or left open'],
+    ['Duplicate / suspicious submissions', recs.filter(x => x.reason === 'duplicate' || x.flags.some(f => ['copied_from_last', 'other_user_on_phone', 'rushed', 'open_too_long'].includes(f))).length, 'Same-day repeats, copied summary, shared phone, rushed or left open'],
     ['Other validation issues', sumF(['retrieved_gt_issued', 'tracks_gt_deployed', 'charge_ne_deployed', 'qc_gt_deployed', 'settlements_lt_wards', 'mlos_new_gt_validated', 'teams_gt_phones', 'all_phones_faulty', 'many_activities', 'many_wards', 'meeting_only_day', 'outside_field_work', 'evening_review_in_morning']), 'Consistency and plausibility checks built into the form'],
   ]
 
@@ -167,6 +168,7 @@ export async function downloadMonthlyReport(opts) {
   const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, ShadingType, HeadingLevel, AlignmentType, BorderStyle } = D
 
   const NAVY = '123B5D'
+  const n = (k, one, many = `${one}s`) => `${k.toLocaleString()} ${k === 1 ? one : many}`
   const TODO = t => `[To complete${t ? `: ${t}` : ''}]`
   const txt = (s, o = {}) => new TextRun({ text: String(s ?? ''), font: 'Aptos', size: o.size ?? 19, bold: o.bold, italics: o.italic, color: o.color })
   const P = (s, o = {}) => new Paragraph({ children: [txt(s, o)], spacing: { after: o.after ?? 120 }, alignment: o.align })
@@ -193,8 +195,13 @@ export async function downloadMonthlyReport(opts) {
   const nd = a.liveDays.length, exp = a.expected, N = a.people.length
   const below = a.belowValid.length
   const pending = a.outside.filter(o => o.outcome.startsWith('Pending')).length
-  const byCov = [...a.states].sort((x, y) => y.coverage - x.coverage)
+  // Several states: compare states. One state: compare its coordinators.
+  const units = a.states.length > 1
+    ? a.states.map(s => ({ label: s.state, v: s.coverage }))
+    : a.people.map(p => ({ label: p.who, v: pct(p.validDays, nd) }))
+  const byCov = [...units].sort((x, y) => y.v - x.v || x.label.localeCompare(y.label))
   const best = byCov.slice(0, 2), worst = byCov.slice(-2).reverse()
+  const unitWord = a.states.length > 1 ? 'state' : 'coordinator'
   const now = new Date(Date.now() + 3600e3).toISOString().slice(0, 16).replace('T', ' ')
   const totalCov = pct(a.people.reduce((n, p) => n + p.validDays, 0), N * nd)
 
@@ -206,10 +213,10 @@ export async function downloadMonthlyReport(opts) {
     rcCounts[k] = (rcCounts[k] || 0) + 1
   })
   const actions = [
-    below && `Follow up the ${below} consultants below ${exp} valid days (Annex B)`,
-    pending && `Verify the ${pending} pending outside-LGA exceptions (Annex D)`,
+    below && `Follow up the ${n(below, 'consultant')} below ${exp} valid days (Annex B)`,
+    pending && `Verify the ${n(pending, 'pending outside-LGA exception')} (Annex D)`,
     a.outside.some(o => o.outcome.includes('old form')) && 'Ensure every consultant updates to the current form version',
-    a.security.length && `Review the ${a.security.length} security incidents with State teams (Annex E)`,
+    a.security.length && `Review the ${n(a.security.length, 'security incident')} with State teams (Annex E)`,
   ].filter(Boolean)
   const topActs = Object.keys(ACTIVITIES).map(k => [k, Object.values(a.act).reduce((n, s) => n + (s[k] || 0), 0)])
     .sort((x, y) => y[1] - x[1]).slice(0, 6).map(([k]) => k)
@@ -230,11 +237,11 @@ export async function downloadMonthlyReport(opts) {
     P('Reporting principle: verified check-in submissions are the evidence base. Submitted records are distinguished from valid records using written rules (section 2), exceptions are explained, and every corrective action has an owner and a due date. Consultants are identified by post (LGA or State Coordinator).', { size: 17 }),
 
     H('1. Executive summary'),
-    P(`Over ${nd} reporting day${nd === 1 ? '' : 's'} (${fd(a.liveFrom)} – ${fd(a.periodEnd)}), ${a.reporting} of ${N} consultants submitted check-ins: ${a.total.toLocaleString()} submissions, of which ${a.valid.toLocaleString()} (${pct(a.valid, a.total)}%) were valid. ${a.met} consultants (${pct(a.met, N)}%) reached ${exp} valid days; ${below} did not. ${a.outside.length} consultants checked in outside their assigned LGA at least once; ${pending} of these still need verification. Consultants raised ${a.security.length} security incidents and ${a.critical.length} critical issues.`),
+    P(`Over ${nd} reporting day${nd === 1 ? '' : 's'} (${fd(a.liveFrom)} – ${fd(a.periodEnd)}), ${a.reporting} of ${N} consultants submitted check-ins: ${a.total.toLocaleString()} submissions, of which ${a.valid.toLocaleString()} (${pct(a.valid, a.total)}%) were valid. ${n(a.met, 'consultant')} (${pct(a.met, N)}%) reached ${exp} valid days; ${below} did not. ${n(a.outside.length, 'consultant')} checked in outside their assigned LGA at least once; ${pending} of these still need verification. Consultants raised ${n(a.security.length, 'security incident')} and ${n(a.critical.length, 'critical issue')}.`),
     T(['Executive summary element', 'Narrative / result'], [
       ['Overall performance status', TODO("Green / Amber / Red with a brief explanation - reviewer's judgement against the agreed standard")],
-      ['Key achievement(s)', `Highest valid-day coverage: ${best.map(s => `${s.state} (${s.coverage}%)`).join(', ')}. ${pct(a.valid, a.total)}% of submissions valid.`],
-      ['Key concern(s)', `${below} consultants below ${exp} valid days; lowest coverage: ${worst.map(s => `${s.state} (${s.coverage}%)`).join(', ')}; ${pending} unverified outside-LGA exceptions.`],
+      ['Key achievement(s)', `Highest valid-day coverage by ${unitWord}: ${best.map(u => `${u.label} (${u.v}%)`).join(', ')}. ${pct(a.valid, a.total)}% of submissions valid.`],
+      ['Key concern(s)', `${n(below, 'consultant')} below ${exp} valid days; lowest coverage by ${unitWord}: ${worst.map(u => `${u.label} (${u.v}%)`).join(', ')}; ${n(pending, 'unverified outside-LGA exception')}.`],
       ['Management attention required', TODO('decision, support or escalation required')],
       ['Overall conclusion', TODO('one-paragraph assessment')],
     ], [30, 70]),
@@ -243,7 +250,7 @@ export async function downloadMonthlyReport(opts) {
     T(['Item', 'Specification'], [
       ['Reporting period', `${fd(a.from)} – ${fd(a.to)} (cycle ends on the 23rd)${a.partial ? `; this draft covers data to ${fd(a.periodEnd)}` : ''}`],
       ['Expected reporting days', `${exp} valid days${exp < a.expectedCfg ? ` (the standard ${a.expectedCfg} of ${daysBetween(a.from, a.to).length} cycle days, scaled to the ${nd} days with data)` : ''}`],
-      ['Consultant population', `${N} on the approved roster in the form: ${a.people.filter(p => p.role === 'lc').length} LGA Coordinators, ${a.people.filter(p => p.role === 'sc').length} State Coordinators (${scope})`],
+      ['Consultant population', `${N} on the approved roster in the form: ${n(a.people.filter(p => p.role === 'lc').length, 'LGA Coordinator')}, ${n(a.people.filter(p => p.role === 'sc').length, 'State Coordinator')} (${scope})`],
       ['Data source(s)', "KoboToolbox form 'Field Team Daily Check-in': submissions, GPS boundary check, redeployment codes, selfie, form-built quality flags"],
       ['Cut-off date and time', `${opts.fetchedAt || now} (latest dashboard data)`],
       ['Validation approach', `A submission is invalid if: ${Object.values(RULES).map((r, i) => `(${i + 1}) ${r}`).join('; ')}. Valid days = distinct days with at least one valid submission.`],
@@ -280,8 +287,8 @@ export async function downloadMonthlyReport(opts) {
     P(`Coverage rate = valid days ÷ (consultants × ${nd} reporting days). ${TODO('interpret differences between states')}`, { italic: true, size: 17 }),
 
     H('5. Geographic presence and field deployment verification'),
-    P('The form checks every check-in against the assigned LGA boundary and records redeployment release codes. A GPS exception is not treated as misconduct until reviewed.', { size: 18 }),
-    T(['Consultant (post)', 'Assigned state', 'Detected location', 'Days outside', 'Distance', 'Verification outcome', 'Reason given'],
+    P('The form checks every check-in against the assigned LGA boundary and records redeployment release codes. A GPS exception is not treated as misconduct until reviewed. Location is where most outside check-ins were made; distance is the furthest any single check-in was from the coordinator’s own LGA, across all days.', { size: 18 }),
+    T(['Consultant (post)', 'Assigned state', 'Most frequent location', 'Days outside', 'Furthest from own LGA', 'Verification outcome', 'Reason given'],
       a.outside.filter(o => o.outcome.startsWith('Pending')).map(o => [o.who, o.state, o.found, o.days, o.maxKm != null ? `${o.maxKm} km` : '-', o.outcome, o.reasons || TODO('follow-up')]),
       [16, 11, 15, 9, 9, 18, 22], 15),
     gap(),
@@ -329,12 +336,13 @@ export async function downloadMonthlyReport(opts) {
     T(['Consultant (post)', 'State', 'Total', 'Invalid', 'Valid days', 'Reason / explanation', 'Supervisor assessment', 'Action'],
       [...a.belowValid].sort((x, y) => x.validDays - y.validDays).map(p => [post(p), p.state, p.total, p.invalid, p.validDays, '', '', '']), [20, 12, 8, 8, 9, 15, 15, 13], 14),
     H('Annex D. Outside-assigned-LGA exception log'),
-    T(['Consultant (post)', 'Assigned state', 'Detected location', 'Days', 'Max distance', 'Outcome', 'Reasons given'],
+    T(['Consultant (post)', 'Assigned state', 'Most frequent location', 'Days', 'Furthest from own LGA', 'Outcome', 'Reasons given'],
       a.outside.map(o => [o.who, o.state, o.found, o.days, o.maxKm != null ? `${o.maxKm} km` : '-', o.outcome, o.reasons]), [16, 11, 15, 7, 10, 18, 23], 14),
     H('Annex E. Security incidents and critical issues'),
     T(['Date', 'Type', 'Consultant (post)', 'Where', 'Description'],
-      [...a.security.map(x => [fd(x.date), 'Security', x.who, `${x.work_state} · ${x.work_lga}`, x.security_desc]),
-        ...a.critical.map(x => [fd(x.date), 'Critical', x.who, `${x.work_state} · ${x.work_lga}`, x.critical_desc])].sort((p, q) => p[0].localeCompare(q[0])),
+      [...a.security.map(x => [x.date, 'Security', x.who, `${x.work_state} · ${x.work_lga}`, x.security_desc]),
+        ...a.critical.map(x => [x.date, 'Critical', x.who, `${x.work_state} · ${x.work_lga}`, x.critical_desc])]
+        .sort((p, q) => p[0].localeCompare(q[0])).map(([d, ...rest]) => [fd(d), ...rest]),
       [11, 9, 16, 18, 46], 14),
 
     H('Indicator definitions and reporting rules'),
