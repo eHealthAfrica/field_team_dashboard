@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import Sidebar, { NAV, SIDEBAR_W, SIDEBAR_COLLAPSED } from './components/Sidebar'
 import TopBar from './components/TopBar'
+import ReportModal from './components/ReportModal'
 import FilterBar, { HiddenFilters } from './components/FilterBar'
 import Overview from './pages/Overview'
 import Attendance from './pages/Attendance'
@@ -35,8 +36,9 @@ export default function App() {
   const [collapsed, setCollapsed] = useState(() => store.get('ftd_sidebar') === 'true')
   // Filter panel always starts hidden on page load; the eye button shows it for this visit only.
   const [showFilters, setShowFilters] = useState(false)
+  const [showReport, setShowReport] = useState(false)
   const toggleFilters = v => setShowFilters(v)
-  const [filters, setFilters] = useState({ range: 'all', state: 'all', role: 'all', from: '', to: '' })
+  const [filters, setFilters] = useState({ range: 'all', state: 'all', role: 'all', coord: 'all', from: '', to: '' })
   const { rows, staff, fetchedAt, loading, loaded, error, refresh } = useData()
 
   const states = useMemo(() => [...new Set(staff.map(s => s.state))].sort(), [staff])
@@ -49,7 +51,8 @@ export default function App() {
   const navigate = (p, it = null) => { setIntent(it); setPage(p); store.set('ftd_page', p); window.history.replaceState(null, '', `#${p}`); window.scrollTo(0, 0) }
   const Page = PAGES[page]
   const sw = collapsed ? SIDEBAR_COLLAPSED : SIDEBAR_W
-  const scope = filters.state === 'all' ? `${states.length} states` : `${filters.state} State`
+  const coordSel = filters.coord && filters.coord !== 'all' ? staff.find(s => s.id === filters.coord) : null
+  const scope = coordSel ? `${coordSel.who}, ${coordSel.state}` : filters.state === 'all' ? `${states.length} states` : `${filters.state} State`
 
   return (
     <div style={{ minHeight: '100vh' }}>
@@ -62,14 +65,16 @@ export default function App() {
           title={NAV.find(n => n.id === page).label}
           subtitle={`${INTRO[page]} · ${scope} · ${roster.length} coordinators expected daily`}
           fetchedAt={fetchedAt} loading={loading} error={error} onRefresh={refresh}
+          onReport={() => setShowReport(true)}
         />
+        {showReport && loaded && <ReportModal rows={rows} staff={staff} fetchedAt={fetchedAt} onClose={() => setShowReport(false)} />}
 
         <main style={{ padding: '10px 18px 16px', maxWidth: 1480 }}>
           {loaded && (
             <div style={{ marginBottom: 8 }}>
               {showFilters
-                ? <FilterBar filters={filters} onChange={setFilters} states={states} range={range} bounds={bounds} onHide={() => toggleFilters(false)} />
-                : <HiddenFilters filters={filters} range={range} onShow={() => toggleFilters(true)} />}
+                ? <FilterBar filters={filters} onChange={setFilters} states={states} staff={staff} range={range} bounds={bounds} onHide={() => toggleFilters(false)} />
+                : <HiddenFilters filters={filters} staff={staff} range={range} onShow={() => toggleFilters(true)} />}
             </div>
           )}
 

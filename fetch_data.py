@@ -215,6 +215,12 @@ def clean(raw, who_by_id):
     date = s(r.get("report_date"))[:10] or (checkin.strftime("%Y-%m-%d") if checkin else "")
     if not date:
         return None
+    # A phone with the wrong date can send a check-in "dated" in the future.
+    # Count it on the day it actually reached the server, and flag it.
+    date_flag = []
+    if submitted and date > submitted.strftime("%Y-%m-%d"):
+        date = submitted.strftime("%Y-%m-%d")
+        date_flag = ["date_after_submission"]
 
     acts = [a for a in s(r.get("activity_type")).split() if a in ACTIVITIES]
     result = s(r.get("result")) or "inside"
@@ -262,7 +268,9 @@ def clean(raw, who_by_id):
         "security_desc": s(r.get("security_desc")),
         "critical":  yes(r.get("critical_any")),
         "critical_desc": s(r.get("critical_desc")),
-        "flags":     s(r.get("flag_list")).split(),
+        "flags":     s(r.get("flag_list")).split() + date_flag,
+        "selfie":    any("selfie" in (str(a.get("question_xpath", "")) + str(a.get("filename", ""))).lower()
+                         for a in (raw.get("_attachments") or [])),
         "form_min":  f1(r.get("form_minutes")),
         "notes":     s(r.get("additional_notes")),
     }

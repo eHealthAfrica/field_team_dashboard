@@ -45,6 +45,7 @@ export const FLAGS = {
   open_too_long:             { label: 'Form open for over 3 hours',                   group: 'Timing' },
   finished_other_day:        { label: 'Finished on a different day from report date', group: 'Timing' },
   clock_moved_back:          { label: 'Phone clock earlier than previous report',     group: 'Timing' },
+  date_after_submission:     { label: 'Report date later than the day it was sent',   group: 'Timing' },
   evening_review_in_morning: { label: 'Evening review logged before 3pm',             group: 'Timing' },
   other_user_on_phone:       { label: 'Phone last used by another staff member',      group: 'Identity' },
   copied_from_last:          { label: 'Summary copied from previous report',          group: 'Identity' },
@@ -139,14 +140,16 @@ export function resolveRange(filters, rows) {
 export function filterRoster(staff, f) {
   return staff.filter(s =>
     (f.state === 'all' || s.state === f.state) &&
-    (f.role === 'all' || s.role === f.role))
+    (f.role === 'all' || s.role === f.role) &&
+    (!f.coord || f.coord === 'all' || s.id === f.coord))
 }
 
 export function filterRows(rows, f, range) {
   return rows.filter(r =>
     r.date >= range.from && r.date <= range.to &&
     (f.state === 'all' || r.state === f.state) &&
-    (f.role === 'all' || r.role === f.role))
+    (f.role === 'all' || r.role === f.role) &&
+    (!f.coord || f.coord === 'all' || r.uid === f.coord))
 }
 
 // ---------------------------------------------------------------------------

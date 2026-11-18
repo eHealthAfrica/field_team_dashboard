@@ -1,8 +1,8 @@
-import { RefreshCw, Printer, Clock } from 'lucide-react'
+import { RefreshCw, Printer, Clock, FileText } from 'lucide-react'
 
 // Blue page header. Line 1: page title. Line 2: context on the left and
 // small, quiet controls (data freshness, refresh, print) on the right.
-export default function TopBar({ title, subtitle, fetchedAt, loading, error, onRefresh }) {
+export default function TopBar({ title, subtitle, fetchedAt, loading, error, onRefresh, onReport }) {
   const mini = {
     display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 7px', borderRadius: 6, cursor: 'pointer',
     background: 'rgba(255,255,255,.14)', border: '1px solid rgba(255,255,255,.25)', color: '#fff',
@@ -24,6 +24,9 @@ export default function TopBar({ title, subtitle, fetchedAt, loading, error, onR
             </button>
             <button style={mini} onClick={() => window.print()} title="Print or save as PDF">
               <Printer size={10} /> Print brief
+            </button>
+            <button style={{ ...mini, background: '#fff', color: 'var(--eha-blue-ink)', border: '1px solid #fff' }} onClick={onReport} title="Month-end report (Word)">
+              <FileText size={10} /> Download report
             </button>
           </div>
         </div>

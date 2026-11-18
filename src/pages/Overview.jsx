@@ -125,7 +125,7 @@ export default function Overview({ rows, data, roster, range, filters, setFilter
   const prevDay = addDays(day, -1)
   const days = daysBetween(range.from, range.to)
 
-  const scope = useMemo(() => ({ state: filters.state, role: filters.role }), [filters.state, filters.role])
+  const scope = useMemo(() => ({ state: filters.state, role: filters.role, coord: filters.coord }), [filters.state, filters.role, filters.coord])
   const rowsOn = d => filterRows(rows, scope, { from: d, to: d })
 
   // A single day shows that day (with change vs the day before); a longer

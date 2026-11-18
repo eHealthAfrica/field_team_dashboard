@@ -17,11 +17,13 @@ export function periodLabel(range) {
 }
 
 // Slim bar shown when the filter panel is hidden: says what is still applied.
-export function HiddenFilters({ filters, range, onShow }) {
+export function HiddenFilters({ filters, staff = [], range, onShow }) {
+  const coord = filters.coord && filters.coord !== 'all' ? staff.find(s => s.id === filters.coord) : null
   const parts = [
     { latest: 'Latest day', all: 'All time', custom: 'Custom period' }[filters.range] || 'All time',
     filters.state === 'all' ? 'All 15 states' : filters.state,
     filters.role === 'all' ? 'All roles' : `${ROLES[filters.role]}s`,
+    ...(coord ? [coord.who] : []),
   ]
   return (
     <div className="no-print" style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5, color: 'var(--ink-3)' }}>
@@ -33,7 +35,7 @@ export function HiddenFilters({ filters, range, onShow }) {
   )
 }
 
-export default function FilterBar({ filters, onChange, states, range, bounds, onHide }) {
+export default function FilterBar({ filters, onChange, states, staff = [], range, bounds, onHide }) {
   const set = patch => onChange({ ...filters, ...patch })
   const period = periodLabel(range)
   return (
@@ -60,14 +62,31 @@ export default function FilterBar({ filters, onChange, states, range, bounds, on
         </span>
       )}
 
-      <select className="filter-select" value={filters.state} onChange={e => set({ state: e.target.value })} aria-label="State">
+      <select className="filter-select" value={filters.state} onChange={e => set({ state: e.target.value, coord: 'all' })} aria-label="State">
         <option value="all">All 15 states</option>
         {states.map(s => <option key={s} value={s}>{s}</option>)}
       </select>
 
-      <select className="filter-select" value={filters.role} onChange={e => set({ role: e.target.value })} aria-label="Role">
+      <select className="filter-select" value={filters.role} onChange={e => set({ role: e.target.value, coord: 'all' })} aria-label="Role">
         <option value="all">All roles</option>
         {Object.entries(ROLES).map(([k, v]) => <option key={k} value={k}>{v}s</option>)}
+      </select>
+
+      {/* One coordinator (LC or SC), shown by post. Narrows every page. */}
+      <select className="filter-select" value={filters.coord || 'all'} onChange={e => set({ coord: e.target.value })}
+        aria-label="LGA or coordinator" style={{ maxWidth: 240 }}>
+        <option value="all">All LGAs / coordinators</option>
+        {(() => {
+          const list = staff.filter(s => (filters.state === 'all' || s.state === filters.state) && (filters.role === 'all' || s.role === filters.role))
+          const byState = {}
+          list.forEach(s => { (byState[s.state] = byState[s.state] || []).push(s) })
+          return Object.keys(byState).sort().map(st => (
+            <optgroup key={st} label={st}>
+              {byState[st].sort((a, b) => (a.role === 'sc' ? -1 : 1) - (b.role === 'sc' ? -1 : 1) || a.who.localeCompare(b.who))
+                .map(s => <option key={s.id} value={s.id}>{s.who}</option>)}
+            </optgroup>
+          ))
+        })()}
       </select>
 
       <span style={{ marginLeft: 'auto', fontSize: 12.5, color: 'var(--ink-3)' }}>

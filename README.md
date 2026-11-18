@@ -30,6 +30,20 @@ KoboToolbox ──(hourly, :00)──▶ fetch_data.py ──▶ data/*.json com
 
 Filters (date range, state, role) apply to every page. Pages can be linked directly, e.g. `#attendance`.
 
+## Month-end report
+
+The Field Consultants' Check-in & Field Performance Report is generated from Kobo for each cycle, which runs from the **24th of the previous month to the 23rd**:
+
+```bash
+pip install python-docx openpyxl
+python scripts/monthly_report.py --refresh          # current cycle, data to today (draft)
+python scripts/monthly_report.py --cycle 2026-11    # 24 Oct - 23 Nov 2026
+```
+
+It writes a Word report and an Excel annex (consultant summary, below-threshold lists, outside-LGA log, security and critical issues, record-level flags, daily attendance grid, activities by state) to `reports/`. **The report contains staff names, so `reports/` is gitignored and must never be committed.**
+
+Validity rules (applied the same way every cycle): a submission is invalid if it is outside the assigned LGA with no redeployment code, has a date problem (finished another day, or phone clock set back), is dated outside the cycle, or is an extra check-in on a day already counted. Valid days = distinct days with at least one valid check-in. The expected-days threshold defaults to 22 of the cycle (as in the LC reports) and scales in proportion when only part of the cycle has data (a new form, or a draft before the 23rd). The dashboard's **Download report** button builds the same report in the browser, identifying consultants by post; the script version adds names and an Excel annex for internal use.
+
 ## Local development
 
 ```bash
