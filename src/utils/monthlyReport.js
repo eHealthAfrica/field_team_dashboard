@@ -261,7 +261,7 @@ export async function downloadMonthlyReport(opts) {
       ['Consultants meeting expected days', `${a.met} / ${pct(a.met, N)}%`, `Consultants with ≥${exp} valid days`],
       ['Consultants below expected valid days', below, `Fewer than ${exp} valid days (Annex B)`],
       ['Consultants below expected total counts', a.belowAny.length, `Fewer than ${exp} days with any submission`],
-      ['Outside-assigned-LGA exceptions', `${a.outside.length} consultants / ${a.outside.reduce((n, o) => n + o.days, 0)} days`, 'Days with a check-in outside the assigned LGA (Annex D)'],
+      ['Outside-assigned-LGA exceptions', `${a.outside.length} consultants / ${a.outside.reduce((n, o) => n + o.days, 0).toLocaleString()} days`, 'Days with a check-in outside the assigned LGA (Annex D)'],
       ['Records with missing coordinates', '0 / 0%', 'GPS is mandatory in the form'],
       ['Records with identity flags', a.recs.filter(x => x.flags.includes('other_user_on_phone')).length, 'Phone last used by another consultant'],
     ], [34, 18, 48]),
@@ -352,7 +352,14 @@ export async function downloadMonthlyReport(opts) {
 
   const doc = new Document({
     creator: 'Field Team Dashboard', title: `Field Consultants Check-in Report - ${month}`,
-    styles: { default: { document: { run: { font: 'Aptos', size: 19 } } } },
+    styles: {
+      default: { document: { run: { font: 'Aptos', size: 19 } } },
+      // Real heading style, so sections show in Word's navigation pane / table of contents
+      paragraphStyles: [{
+        id: 'Heading1', name: 'Heading 1', basedOn: 'Normal', next: 'Normal', quickFormat: true,
+        run: { font: 'Aptos', size: 26, bold: true, color: NAVY }, paragraph: { spacing: { before: 280, after: 120 }, outlineLevel: 0 },
+      }],
+    },
     sections: [{ properties: { page: { margin: { top: 900, bottom: 900, left: 950, right: 950 } } }, children }],
   })
   const blob = await Packer.toBlob(doc)

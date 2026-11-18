@@ -55,11 +55,25 @@ if not TOKEN:
 
 # ---------------------------------------------------------------- helpers
 
-def kobo_get(url, raw=False):
+def kobo_get(url, raw=False, attempts=3):
+    """GET from Kobo, retrying temporary failures (Kobo sometimes returns
+    502/503/504 or times out for a moment)."""
+    import time
+    from urllib.error import HTTPError, URLError
     req = Request(url, headers={"Authorization": f"Token {TOKEN}"})
-    with urlopen(req, timeout=60) as r:
-        body = r.read()
-    return body if raw else json.loads(body)
+    for n in range(1, attempts + 1):
+        try:
+            with urlopen(req, timeout=60) as r:
+                body = r.read()
+            return body if raw else json.loads(body)
+        except HTTPError as e:
+            if e.code not in (429, 500, 502, 503, 504) or n == attempts:
+                raise
+        except (URLError, TimeoutError):
+            if n == attempts:
+                raise
+        print(f"  Kobo request failed (attempt {n}/{attempts}), retrying...", file=sys.stderr)
+        time.sleep(15 * n)
 
 
 def user_hash(key):
