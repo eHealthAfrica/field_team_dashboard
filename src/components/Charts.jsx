@@ -41,20 +41,23 @@ export function ReportingRateChart({ series, height = 220 }) {
 export function LocationStackChart({ series, height = 220 }) {
   if (!series.some(d => STATUS_ORDER.some(k => d[k]))) return <EmptyChart height={height} />
   return (
+    // One line per location category, so the smaller groups (redeployed,
+    // outside) stay readable instead of sitting thin on top of a stack.
     <ResponsiveContainer width="100%" height={height}>
-      <BarChart data={series} margin={{ top: 8, right: 12, left: -18, bottom: 0 }} barCategoryGap="25%">
+      <LineChart data={series} margin={{ top: 8, right: 12, left: -18, bottom: 0 }}>
         <CartesianGrid stroke="var(--grid)" vertical={false} />
         <XAxis dataKey="label" tick={axis} axisLine={{ stroke: 'var(--axis)' }} tickLine={false} minTickGap={16} />
         <YAxis tick={axis} axisLine={false} tickLine={false} allowDecimals={false} />
-        <Tooltip {...tooltipStyle} cursor={{ fill: 'rgba(0,0,0,0.04)' }} />
-        <Legend iconType="square" iconSize={9} wrapperStyle={legendStyle}
+        <Tooltip {...tooltipStyle} cursor={{ stroke: 'var(--axis)' }} />
+        <Legend iconType="plainline" iconSize={14} wrapperStyle={legendStyle}
           formatter={v => <span style={{ color: 'var(--ink-2)', marginRight: 6 }}>{v}</span>} />
-        {STATUS_ORDER.map((k, idx) => (
-          <Bar isAnimationActive={false} key={k} dataKey={k} name={STATUS[k].label} stackId="s" fill={STATUS[k].color}
-            stroke="#fff" strokeWidth={1}
-            radius={idx === STATUS_ORDER.length - 1 ? [4, 4, 0, 0] : 0} />
+        {STATUS_ORDER.map(k => (
+          <Line isAnimationActive={false} key={k} type="linear" dataKey={k} name={STATUS[k].label}
+            stroke={STATUS[k].color} strokeWidth={2}
+            dot={{ r: 2.5, strokeWidth: 0, fill: STATUS[k].color }}
+            activeDot={{ r: 5, stroke: '#fff', strokeWidth: 2 }} />
         ))}
-      </BarChart>
+      </LineChart>
     </ResponsiveContainer>
   )
 }
