@@ -81,11 +81,6 @@ export default function ReportModal({ rows, staff, fetchedAt, onClose }) {
             </div>
           )}
 
-          <div style={{ fontSize: 11, color: 'var(--ink-3)', lineHeight: 1.5 }}>
-            Follows the PM's template: executive summary, method and validity rules, KPI table, consultant compliance, state coverage,
-            outside-LGA verification, activities, data quality, exceptions, action tracker and annexes. Figures are filled in;
-            judgement fields (status, root causes, owners) are left marked <em>[To complete]</em>. Consultants are shown by post, not name.
-          </div>
           {err && <div style={{ fontSize: 12, color: 'var(--crit-ink)' }}>Could not create the report: {err}</div>}
           {done && <div style={{ fontSize: 12, color: 'var(--good-ink)', display: 'flex', alignItems: 'center', gap: 6 }}><CheckCircle2 size={14} /> Downloaded {done}</div>}
         </div>
