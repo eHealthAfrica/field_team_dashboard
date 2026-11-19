@@ -42,7 +42,7 @@ from openpyxl.utils import get_column_letter  # noqa: E402
 
 REPORT_DIR = os.path.join(ROOT, "reports")
 CACHE = os.path.join(REPORT_DIR, "_kobo_cache.json")
-DEFAULT_EXPECTED_DAYS = 22          # threshold used in the LC monthly reports
+DEFAULT_EXPECTED_DAYS = 22          # set in the PM's report template; never scaled
 NAVY = "123B5D"                     # template header colour
 
 # Invalid-record rules, applied the same way every cycle.
@@ -179,13 +179,8 @@ def analyse(staff, recs, start, end, as_of, expected_cfg, failed_logins):
     first_data = min((x["d"] for x in recs), default=start)
     live_start = max(start, first_data)
     live_days = days(live_start, period_end)
-    # The standard (22 of a ~31-day cycle) scales in proportion when only part of
-    # the cycle has data - a new form, or a draft before the 23rd.
-    cycle_days = (end - start).days + 1
-    if len(live_days) >= cycle_days:
-        expected = expected_cfg
-    else:
-        expected = max(1, min(len(live_days), round(expected_cfg * len(live_days) / cycle_days)))
+    # The PM's standard as written in the template; not scaled for drafts.
+    expected = expected_cfg
 
     by_uid = collections.defaultdict(list)
     for x in recs:
@@ -288,7 +283,7 @@ def analyse(staff, recs, start, end, as_of, expected_cfg, failed_logins):
         "reasons": collections.Counter(x["reason"] for x in recs if x["reason"]),
         "reporting": sum(1 for p in people if p["total"]), "met": sum(p["met"] for p in people),
         "below_valid": [p for p in people if not p["met"]],
-        "below_total": [p for p in people if p["total_days"] < expected],
+        "below_total": [p for p in people if p["total"] < expected],
         "security": [x for x in recs if x["security"]], "critical": [x for x in recs if x["critical"]],
         "flags": flag_n, "recs": recs,
     }
@@ -393,7 +388,7 @@ def write_docx(a, cycle, start, end, fetched, path):
     h1(doc, "2. Reporting scope and methodology")
     table(doc, ["Item", "Specification"], [
         ["Reporting period", f"{fmt(start)} – {fmt(end)} (cycle ends on the 23rd)" + (f"; this draft covers data to {fmt(a['period_end'])}" if partial else "")],
-        ["Expected reporting days", f"{exp} valid days" + (f" (the standard {a['expected_cfg']} of {(end - start).days + 1} cycle days, scaled to the {nd} days with data)" if exp < a["expected_cfg"] else "")],
+        ["Expected reporting days", f"{exp} valid days, as set in the report template" + (f". The cycle is not finished (data to {a['period_end']}), so counts below {exp} are so far, not final" if a["period_end"] < end else "")],
         ["Consultant population", f"{len(a['people'])} on the approved roster (form media c_data.csv): "
                                   f"{sum(p['role'] == 'lc' for p in a['people'])} LGA Coordinators, {sum(p['role'] == 'sc' for p in a['people'])} State Coordinators"],
         ["Data source(s)", "KoboToolbox form 'Field Team Daily Check-in' (asset aV89vgirjJgfzTNDBDGGzE): submissions, GPS boundary check, selfie, form-built quality flags"],
@@ -417,7 +412,7 @@ def write_docx(a, cycle, start, end, fetched, path):
         ["Valid submission rate", f"{pct(a['valid'], a['total'])}%", "Valid ÷ total submissions × 100"],
         ["Consultants meeting expected days", f"{a['met']} / {pct(a['met'], len(a['people']))}%", f"Consultants with ≥{exp} valid days"],
         ["Consultants below expected valid days", below, f"Fewer than {exp} valid days (Annex B)"],
-        ["Consultants below expected total counts", len(a["below_total"]), f"Fewer than {exp} days with any submission (Annex C)"],
+        ["Consultants below expected total counts", len(a["below_total"]), f"Fewer than {exp} total check-in records (Annex C)"],
         ["Outside-assigned-LGA exceptions", f"{len(a['outside'])} consultants / {sum(o['days'] for o in a['outside'])} days", "Days with a check-in outside the assigned LGA (Annex D)"],
         ["Records with missing coordinates", f"{miss_gps} / {pct(miss_gps, a['total'])}%", "Submissions without GPS ÷ all submissions"],
         ["Records with identity/contact flags", a["failed_logins"] + a["flags"].get("other_user_on_phone", 0), "Unmatched logins + phone last used by another consultant"],
@@ -526,7 +521,7 @@ def write_docx(a, cycle, start, end, fetched, path):
         ["Valid submission", "A record that breaks none of the rules in section 2. Only the first valid record per consultant per day counts."],
         ["Invalid submission", "A record excluded by a rule; the reason is listed per record in Annex F."],
         ["Valid days", "Distinct days with at least one valid check-in."],
-        ["Compliance threshold", f"{exp} valid days in this cycle (standard {a['expected_cfg']}, as in the LC reports; scaled in proportion when only part of the cycle has data)."],
+        ["Compliance threshold", f"{exp} valid days, as set in the report template."],
         ["Outside-LGA exception", "Check-in outside the assigned LGA by the form's GPS boundary check. Verified when a redeployment release code was entered."],
         ["Coverage rate", "Valid days ÷ (consultants × reporting days)."],
         ["Reporting population", "Approved roster in the form (c_data.csv) at the cut-off."],

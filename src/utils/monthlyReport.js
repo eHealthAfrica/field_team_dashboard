@@ -7,7 +7,7 @@
 
 import { ACTIVITIES, OUTPUTS, addDays, daysBetween, lgaDayOutputs, pct } from './data'
 
-export const DEFAULT_EXPECTED_DAYS = 22   // threshold used in the LC monthly reports
+export const DEFAULT_EXPECTED_DAYS = 22   // set in the PM's report template ("Below 22 days"); never scaled
 
 const RULES = {
   outside_no_redeploy: 'Outside the assigned LGA with no redeployment code',
@@ -73,11 +73,9 @@ export function analyseCycle({ rows, staff, cycle, from: f, to: t, state = 'all'
   const firstData = recs.length ? recs[0].date : from
   const liveFrom = firstData > from ? firstData : from
   const liveDays = daysBetween(liveFrom, periodEnd)
-  // The standard (22 of a ~31-day cycle) scales in proportion when only part of
-  // the cycle has data - a new form, or a draft before the 23rd.
-  const cycleDays = daysBetween(from, to).length
-  const expected = liveDays.length >= cycleDays ? expectedDays
-    : Math.max(1, Math.min(liveDays.length, Math.round(expectedDays * liveDays.length / cycleDays)))
+  // The PM's standard as written in the template (22 valid days). It is not
+  // scaled: in a draft the count is "so far" and consultants can still reach it.
+  const expected = expectedDays
 
   const byUid = new Map()
   recs.forEach(x => { const k = x.uid || x.who; if (!byUid.has(k)) byUid.set(k, []); byUid.get(k).push(x) })
@@ -158,7 +156,7 @@ export function analyseCycle({ rows, staff, cycle, from: f, to: t, state = 'all'
     people, states, outside, dq, act, outputs, recs, reasonCounts,
     total: recs.length, valid: valid.length, invalid: recs.length - valid.length,
     reporting: people.filter(p => p.total).length, met: people.filter(p => p.met).length,
-    belowValid: people.filter(p => !p.met), belowAny: people.filter(p => p.anyDays < expected),
+    belowValid: people.filter(p => !p.met), belowAny: people.filter(p => p.total < expected),
     security: recs.filter(x => x.security), critical: recs.filter(x => x.critical),
     orphans: recs.filter(x => !ids.has(x.uid)).length,
   }
@@ -168,13 +166,11 @@ export function analyseCycle({ rows, staff, cycle, from: f, to: t, state = 'all'
 // One content model drives all three formats (Word, PDF, PowerPoint).
 // Everything that can be worked out from the data is filled in; narrative,
 // root causes, risks and actions are drafted by fixed rules from the figures
-// and are marked as drafts for the reviewer. Only names, signatures and the
-// supervisor's own assessment are left to complete by hand.
+// using the rules stated in the report. Nothing is left blank for hand completion.
 
 const NAVY = '123B5D'
 const BLUE = '0090FC'
 const LIME = 'E2EE64'
-const TODO = t => `[To complete${t ? `: ${t}` : ''}]`
 const nf = (k, one, many = `${one}s`) => `${k.toLocaleString()} ${k === 1 ? one : many}`
 const andList = xs => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`)
 const median = xs => {
@@ -255,10 +251,10 @@ export function buildReport(opts) {
 
   // Corrective actions: drafted from the findings, highest priority first
   const actions = [
-    a.security.length && { area: 'Security', text: `Review the ${nf(a.security.length, 'security incident')} with State teams and record the follow-up (Annex E)`, priority: 'High', owner: 'Programme Manager with State Coordinators', due: quickDue, measure: 'Every incident has a recorded follow-up' },
+    a.security.length && { area: 'Security', text: `Review the ${nf(a.security.length, 'security incident')} with State teams and record the follow-up (Annex H)`, priority: 'High', owner: 'Programme Manager with State Coordinators', due: quickDue, measure: 'Every incident has a recorded follow-up' },
     groups.none.length && { area: 'Compliance', text: `Confirm the status of the ${nf(groups.none.length, 'post')} with no check-in at all (onboard, equip or replace)`, priority: 'High', owner: 'State Coordinators', due: quickDue, measure: 'Every rostered post submits at least one check-in' },
     pending && { area: 'Presence', text: `Verify the ${nf(pending, 'pending outside-LGA exception')} (Annex D)`, priority: noCode ? 'High' : 'Medium', owner: 'State Coordinators', due: quickDue, measure: 'No pending exceptions at the next report' },
-    below && { area: 'Compliance', text: `Follow up the ${nf(below, 'consultant')} below ${exp} valid days (Annex B)`, priority: 'Medium', owner: 'State Coordinators', due: cycleDue, measure: `Fewer than ${nf(below, 'consultant')} below the threshold next cycle` },
+    below && { area: 'Compliance', text: `Follow up the ${nf(below, 'consultant')} below ${exp} valid days (Annex B)`, priority: 'Medium', owner: 'State Coordinators', due: cycleDue, measure: 'Follow-up recorded for each consultant in Annex B' },
     oldFormRecs && { area: 'Data quality', text: `Update the form on every phone: ${nf(oldFormRecs, 'outside-LGA check-in')} came from old versions that cannot record redeployment`, priority: 'Medium', owner: 'Data team with State Coordinators', due: cycleDue, measure: 'No check-ins from old form versions' },
     dateProb && { area: 'Data quality', text: `Ask consultants to keep phones on automatic date and time (${nf(dateProb, 'submission')} invalid for date problems)`, priority: 'Medium', owner: 'State Coordinators', due: cycleDue, measure: 'No date-problem submissions' },
     sharedPhone && { area: 'Data quality', text: `Confirm each consultant uses their own phone (${nf(sharedPhone, 'check-in')} from a phone last used by someone else)`, priority: 'Low', owner: 'State Coordinators', due: cycleDue, measure: 'No shared-phone flags' },
@@ -273,7 +269,7 @@ export function buildReport(opts) {
   ].filter(Boolean)
 
   // Narrative
-  const statusText = `${pct(a.met, N)}% of consultants met the ${exp}-day standard, ${validRate}% of submissions were valid and valid-day coverage was ${totalCov}%. (No Green/Amber/Red thresholds have been agreed; the reviewer assigns the rating.)`
+  const statusText = `${pct(a.met, N)}% of consultants met the ${exp}-day standard, ${validRate}% of submissions were valid and valid-day coverage was ${totalCov}%.`
   const achieveText = `Highest valid-day coverage by ${unitWord}: ${best.map(u => `${u.label} (${u.v}%)`).join(', ')}. ${validRate}% of submissions valid.`
   const concernText = `${nf(below, 'consultant')} below ${exp} valid days; lowest coverage by ${unitWord}: ${worst.map(u => `${u.label} (${u.v}%)`).join(', ')}; ${nf(pending, 'unverified outside-LGA exception')}.`
   const attention = actions.filter(x => x.priority === 'High').map(x => x.text)
@@ -287,7 +283,7 @@ export function buildReport(opts) {
     zeroDays.length ? `No check-ins at all on ${andList(zeroDays.map(fd))} (possible network or system downtime).` : '',
     oldFormRecs ? `${nf(oldFormRecs, 'outside-LGA check-in')} came from old form versions that cannot record redeployment; these are listed for review, not counted invalid.` : '',
     'Activity figures are self-reported.',
-    'Leave, onboarding dates and approved absences are not recorded in the form, so they are not excluded; adjust Annex B if any apply.',
+    'Leave, onboarding dates and approved absences are not recorded in the form, so they are not excluded.',
   ].filter(Boolean).join(' ')
 
   const covNote = `Coverage rate = valid days ÷ (consultants × ${nd} reporting days). Coverage ranged from ${byCov[byCov.length - 1]?.v}% (${byCov[byCov.length - 1]?.label}) to ${byCov[0]?.v}% (${byCov[0]?.label}); ${belowAvg} of ${units.length} ${unitWord}s were below the overall rate of ${totalCov}%.`
@@ -309,9 +305,6 @@ export function buildReport(opts) {
     a.security.length && 'Security follow-up with State teams',
     groups.none.length && `Decision on the ${nf(groups.none.length, 'post')} with no check-in (replace or reassign)`,
   ].filter(Boolean)
-  const improve = below
-    ? `Valid-day coverage above ${totalCov}% and fewer than ${nf(below, 'consultant')} below ${exp} valid days${pending ? '; no pending outside-LGA exceptions' : ''}`
-    : `Keep every consultant at ${exp}+ valid days${pending ? '; no pending outside-LGA exceptions' : ''}`
 
   // ---------------------------------------------------------------- blocks
   const B = []
@@ -327,11 +320,11 @@ export function buildReport(opts) {
     ['Reporting month / period', `${isCycle ? `${periodLabel}: ${fd(a.from)} – ${fd(a.to)}` : periodLabel}${a.partial ? ` (draft - data to ${fd(a.periodEnd)})` : ''}`],
     ['Programme / project', 'eHealth Africa field team (LGA and State Coordinators)'],
     ['State / operational area', multi ? `${a.states.length} states: ${a.states.map(s => s.state).join(', ')}` : scope],
-    ['Prepared by', 'Field Team Dashboard (automated draft)'], ['Reviewed by', TODO('name, role')],
+    ['Prepared by', 'Field Team Dashboard (automated draft)'], ['Reviewed by', 'Programme Manager'],
     ['Date of submission', fd(today)], ['Version', `Draft 1 - generated from the Field Team Dashboard, ${now} WAT`],
   ], [30, 70])
   gap()
-  p('Reporting principle: verified check-in submissions are the evidence base. Submitted records are distinguished from valid records using written rules (section 2), exceptions are explained, and every corrective action has an owner and a due date. Narrative, root causes, risks and actions are drafted automatically from the data for the reviewer to confirm or edit. Consultants are identified by post (LGA or State Coordinator).', { size: 17 })
+  p('Reporting principle: verified check-in submissions are the evidence base. Submitted records are distinguished from valid records using written rules (section 2), exceptions are explained, and every corrective action has an owner and a due date. Narrative, root causes, risks and actions are drafted automatically from the data by the fixed rules set out in the indicator definitions. Consultants are identified by post (LGA or State Coordinator).', { size: 17 })
 
   h('1. Executive summary')
   p(`Over ${nf(nd, 'reporting day')} (${fd(a.liveFrom)} – ${fd(a.periodEnd)}), ${a.reporting} of ${N} consultants submitted check-ins: ${a.total.toLocaleString()} submissions, of which ${a.valid.toLocaleString()} (${validRate}%) were valid. ${nf(a.met, 'consultant')} (${pct(a.met, N)}%) reached ${exp} valid days; ${below} did not. ${nf(a.outside.length, 'consultant')} checked in outside their assigned LGA at least once; ${pending} of these still need verification. Consultants raised ${nf(a.security.length, 'security incident')} and ${nf(a.critical.length, 'critical issue')}.`)
@@ -346,7 +339,7 @@ export function buildReport(opts) {
   h('2. Reporting scope and methodology')
   tb(['Item', 'Specification'], [
     ['Reporting period', `${fd(a.from)} – ${fd(a.to)} ${isCycle ? ' (cycle ends on the 23rd)' : ''}${a.partial ? `; this draft covers data to ${fd(a.periodEnd)}` : ''}`],
-    ['Expected reporting days', `${exp} valid days${exp < a.expectedCfg ? ` (the standard ${a.expectedCfg} of the ${daysBetween(a.from, a.to).length} days in the period, scaled to the ${nd} days with data)` : ''}`],
+    ['Expected reporting days', `${exp} valid days, as set in the report template${a.partial ? `. The period is not finished (data to ${fd(a.periodEnd)}), so counts below ${exp} are so far, not final` : ''}`],
     ['Consultant population', `${N} on the approved roster in the form: ${nf(a.people.filter(x => x.role === 'lc').length, 'LGA Coordinator')}, ${nf(a.people.filter(x => x.role === 'sc').length, 'State Coordinator')} (${scope})`],
     ['Data source(s)', "KoboToolbox form 'Field Team Daily Check-in': submissions, GPS boundary check, redeployment codes, selfie, form-built quality flags"],
     ['Cut-off date and time', `${opts.fetchedAt || now} (latest dashboard data)`],
@@ -364,7 +357,7 @@ export function buildReport(opts) {
     ['Valid submission rate', `${validRate}%`, 'Valid ÷ total submissions × 100'],
     ['Consultants meeting expected days', `${a.met} / ${pct(a.met, N)}%`, `Consultants with ≥${exp} valid days`],
     ['Consultants below expected valid days', below, `Fewer than ${exp} valid days (Annex B)`],
-    ['Consultants below expected total counts', a.belowAny.length, `Fewer than ${exp} days with any submission`],
+    ['Consultants below expected total counts', a.belowAny.length, `Fewer than ${exp} total check-in records`],
     ['Outside-assigned-LGA exceptions', `${a.outside.length} consultants / ${a.outside.reduce((k, o) => k + o.days, 0).toLocaleString()} days`, 'Days with a check-in outside the assigned LGA (Annex D)'],
     ['Records with missing coordinates', '0 / 0%', 'GPS is mandatory in the form'],
     ['Records with identity flags', sharedPhone, 'Phone last used by another consultant'],
@@ -432,11 +425,10 @@ export function buildReport(opts) {
     ['Priority 2', actions[1]?.text || '-'],
     ['Priority 3', actions[2]?.text || '-'],
     ['Support required from management', support.length ? support.join('; ') : 'None identified from the data'],
-    ['Expected improvement by next report', improve],
   ], [35, 65])
 
   h('12. Review and approval')
-  tb(['Prepared by', 'Reviewed by', 'Approved by'], [['Field Team Dashboard (automated draft)', 'Name:          Role:          Signature:          Date:', 'Name:          Role:          Signature:          Date:']])
+  tb(['Prepared by', 'Reviewed by'], [['Field Team Dashboard (automated draft)', 'Programme Manager']])
 
   h('Annex A. Consultant-level submission and validity summary')
   tb(['Consultant (post)', 'State', 'Total', 'Invalid', 'Valid', 'Valid days', `Met ${exp}?`, 'Last check-in'],
@@ -444,18 +436,18 @@ export function buildReport(opts) {
       .map(x => [x.who, x.state, x.total, x.invalid, x.valid, x.validDays, x.met ? 'Met' : 'Not met', x.last ? fd(x.last) : 'None']),
     [26, 14, 9, 9, 9, 10, 10, 13], 14)
   h(`Annex B. Consultants below ${exp} valid days`)
-  tb(['Consultant (post)', 'State', 'Total', 'Invalid', 'Valid days', 'Reason (from the data)', 'Supervisor assessment', 'Suggested action'],
+  tb(['Consultant (post)', 'State', 'Total', 'Invalid', 'Valid days', 'Reason (from the data)', 'Suggested action'],
     [...a.belowValid].sort((x, y) => x.validDays - y.validDays).map(x => {
       const SHORT = { outside_no_redeploy: 'outside LGA, no code', date_problem: 'date problem', duplicate: 'repeat' }
       const rs = Object.entries(x.reasons).map(([r, k]) => `${k} ${SHORT[r]}`)
       const why = x.total === 0 ? 'No check-in in the period'
         : `${x.validDays} valid of ${x.anyDays} days with a check-in${rs.length ? `; invalid: ${rs.join(', ')}` : ''}; last ${fd(x.last)}`
-      return [x.who, x.state, x.total, x.invalid, x.validDays, why, '', ROOT[groupOf(x)].response]
-    }), [16, 10, 7, 7, 8, 22, 14, 16], 14)
+      return [x.who, x.state, x.total, x.invalid, x.validDays, why, ROOT[groupOf(x)].response]
+    }), [17, 10, 7, 7, 8, 29, 22], 14)
   h('Annex D. Outside-assigned-LGA exception log')
   tb(['Consultant (post)', 'Assigned state', 'Most frequent location', 'Days', 'Furthest from own LGA', 'Outcome', 'Reasons given'],
     a.outside.map(o => [o.who, o.state, o.found, o.days, o.maxKm != null ? `${o.maxKm} km` : '-', o.outcome, o.reasons || '-']), [16, 11, 15, 7, 10, 18, 23], 14)
-  h('Annex E. Security incidents and critical issues')
+  h('Annex H. Security incidents and critical issues')
   tb(['Date', 'Type', 'Consultant (post)', 'Where', 'Description'],
     [...a.security.map(x => [x.date, 'Security', x.who, `${x.work_state} · ${x.work_lga}`, x.security_desc]),
       ...a.critical.map(x => [x.date, 'Critical', x.who, `${x.work_state} · ${x.work_lga}`, x.critical_desc])]
@@ -467,7 +459,7 @@ export function buildReport(opts) {
     ['Total submissions', 'Check-in records dated within the reporting period, before validity exclusions.'],
     ['Valid submission', 'A record that breaks none of the rules in section 2. Only the first valid record per consultant per day counts.'],
     ['Valid days', 'Distinct days with at least one valid check-in.'],
-    ['Compliance threshold', `${exp} valid days for this period (${a.expectedCfg} for the full period, set when the report was generated; the LC reports use 22 per cycle; scaled in proportion when only part of the period has data).`],
+    ['Compliance threshold', `${exp} valid days, as set in the report template.`],
     ['Outside-LGA exception', "Check-in outside the assigned LGA by the form's GPS boundary check. Verified when a redeployment release code was entered."],
     ['Coverage rate', 'Valid days ÷ (consultants × reporting days).'],
     ['Drafted text', 'Narrative, root causes, risks, priorities, owners and due dates are drafted by fixed rules from the figures in this report. Due dates: verification and security items 7 days after the data cut-off; compliance and data-quality items by the end of the cycle still running (the next cycle, once this one has closed).'],
@@ -478,7 +470,7 @@ export function buildReport(opts) {
   const base = `Field_Consultants_Report_${isCycle ? a.cycle : `${a.from}_to_${a.to}`}${a.state === 'all' ? '' : `_${a.state}`}${a.partial ? `_draft-${a.periodEnd}` : ''}`
   return {
     a, base, blocks: B, month, periodLabel, scope, now,
-    deck: { nd, exp, N, below, pending, totalCov, validRate, units, byCov, unitWord, multi, statusText, conclusion, actions, risks, geo, actTotals, rootRows, support, improve, achieveText, concernText },
+    deck: { nd, exp, N, below, pending, totalCov, validRate, units, byCov, unitWord, multi, statusText, conclusion, actions, risks, geo, actTotals, rootRows, support, achieveText, concernText },
   }
 }
 
@@ -729,9 +721,8 @@ async function renderPptx(R) {
     ['Priority 2', d.actions[1]?.text || '-'],
     ['Priority 3', d.actions[2]?.text || '-'],
     ['Support required', d.support.length ? d.support.join('; ') : 'None identified from the data'],
-    ['Expected improvement', d.improve],
   ], { x: 0.45, y: 1.1, w: 12.4, colW: [2.6, 9.8], fontSize: 13 })
-  note(s, 'Drafted from the data for the reviewer to confirm. Owners and dates follow the rules in the full report.')
+  note(s, 'Drafted from the data by fixed rules. Owners and dates follow the rules in the full report.')
 
   const name = `${R.base}.pptx`
   saveBlob(await pptx.write({ outputType: 'blob' }), name)

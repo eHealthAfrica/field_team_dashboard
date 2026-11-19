@@ -5,12 +5,6 @@ import { daysBetween } from '../utils/data'
 
 const fd = d => new Date(`${d}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
 
-// Expected valid days for a period: the standard 22 for a full cycle (~31 days),
-// in proportion for a shorter or longer period, never more than the days in it.
-const suggestExpected = (from, to) => {
-  const n = daysBetween(from, to).length
-  return Math.max(1, Math.min(n, Math.round(DEFAULT_EXPECTED_DAYS * n / 31)))
-}
 const cycleLen = c => { const b = cycleBounds(c); return daysBetween(b.from, b.to).length }
 
 const FORMATS = [
@@ -33,8 +27,9 @@ export default function ReportModal({ rows, staff, fetchedAt, onClose }) {
   const [from, setFrom] = useState(first.from)
   const [to, setTo] = useState(first.to)
   const [state, setState] = useState('all')
-  const [expectedDays, setExpectedDays] = useState(DEFAULT_EXPECTED_DAYS)
-  const setPeriod = (f, t, exp) => { setFrom(f); setTo(t); if (f && t && f <= t) setExpectedDays(exp ?? suggestExpected(f, t)) }
+  // the PM's standard from the report template; not editable, not scaled
+  const expectedDays = DEFAULT_EXPECTED_DAYS
+  const setPeriod = (f, t) => { setFrom(f); setTo(t) }
   const activeCycle = cycles.find(c => { const b = cycleBounds(c); return b.from === from && b.to === to })
   const badRange = !from || !to || from > to
   const noData = !badRange && !rows.some(r => r.date >= from && r.date <= to)
@@ -93,7 +88,7 @@ export default function ReportModal({ rows, staff, fetchedAt, onClose }) {
               {cycles.map(c => {
                 const b = cycleBounds(c), on = activeCycle === c
                 return (
-                  <button key={c} type="button" onClick={() => setPeriod(b.from, b.to, DEFAULT_EXPECTED_DAYS)}
+                  <button key={c} type="button" onClick={() => setPeriod(b.from, b.to)}
                     title={`${fd(b.from)} – ${fd(b.to)} (${cycleLen(c)} days)`}
                     style={{ border: `1px solid ${on ? 'var(--eha-blue, #0090fc)' : 'var(--line)'}`, background: on ? '#e6f4ff' : '#fff', color: on ? '#0078d4' : 'var(--ink-2)', borderRadius: 999, padding: '3px 10px', cursor: 'pointer', fontSize: 11.5, fontWeight: on ? 600 : 500 }}>
                     {cycleName(c)} cycle (24th–23rd)
@@ -110,18 +105,13 @@ export default function ReportModal({ rows, staff, fetchedAt, onClose }) {
             {badRange && <div style={{ fontSize: 12, color: 'var(--crit-ink)', marginTop: 6 }}>Choose a From date on or before the To date.</div>}
             {noData && <div style={{ fontSize: 12, color: 'var(--warn-ink)', marginTop: 6 }}>No check-ins in this period. Data runs from {fd(dataFrom)} to {fd(dataTo)}.</div>}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 140px', gap: 12 }}>
+          <div>
             <div>
               <label style={label}>Scope</label>
               <select className="filter-select" style={{ width: '100%' }} value={state} onChange={e => setState(e.target.value)}>
                 <option value="all">All {states.length} states</option>
                 {states.map(s => <option key={s} value={s}>{s} State</option>)}
               </select>
-            </div>
-            <div>
-              <label style={label} title="22 for a full reporting cycle, as in the LC monthly reports; set in proportion for other periods. You can change it.">Expected valid days</label>
-              <input type="number" min={1} max={31} className="filter-select" style={{ width: '100%', paddingRight: 10 }}
-                value={expectedDays} onChange={e => setExpectedDays(Math.max(1, Math.min(31, Number(e.target.value) || DEFAULT_EXPECTED_DAYS)))} />
             </div>
           </div>
 
@@ -130,8 +120,8 @@ export default function ReportModal({ rows, staff, fetchedAt, onClose }) {
               {preview.partial && <div style={{ fontWeight: 600, color: 'var(--warn-ink)', marginBottom: 4 }}>
                 Period runs past the latest data - this will be a draft with data to {fd(preview.periodEnd)}.</div>}
               <div><strong>{preview.total.toLocaleString()}</strong> submissions over {preview.liveDays.length} days · <strong>{preview.valid.toLocaleString()}</strong> valid ({Math.round(100 * preview.valid / Math.max(1, preview.total))}%)</div>
-              <div><strong>{preview.met}</strong> of {preview.people.length} consultants met {preview.expected} valid days
-                {preview.expected < expectedDays && <span style={{ color: 'var(--ink-3)' }}> (the {expectedDays} expected days scaled to the {preview.liveDays.length} days with data)</span>}</div>
+              <div><strong>{preview.met}</strong> of {preview.people.length} consultants have {preview.expected}+ valid days{preview.partial ? ' so far' : ''}
+                <span style={{ color: 'var(--ink-3)' }}> (the PM's standard of {preview.expected} valid days)</span></div>
               <div><strong>{preview.outside.length}</strong> outside-LGA exceptions · <strong>{preview.security.length}</strong> security · <strong>{preview.critical.length}</strong> critical</div>
             </div>
           )}
