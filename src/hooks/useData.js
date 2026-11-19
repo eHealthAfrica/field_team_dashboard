@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
+import { AUTH, api } from '../auth'
 
 const BASE = import.meta.env.BASE_URL
 
-// Loads the check-ins and the roster. Re-polls every 10 minutes; the files
-// themselves are refreshed hourly by the GitHub Actions.
+// Loads the check-ins and the roster. Re-polls every 10 minutes; the data is
+// refreshed hourly from Kobo. In login mode (ERITAS) it comes from the server,
+// already limited to the states the signed-in user may see.
 export function useData() {
   const [rows, setRows] = useState([])
   const [staff, setStaff] = useState([])
@@ -20,10 +22,15 @@ export function useData() {
         if (!res.ok) throw new Error(`${f}: HTTP ${res.status}`)
         return res.json()
       }
-      const [data, roster] = await Promise.all([get('data.json'), get('roster.json')])
-      setRows(data.rows || [])
-      setStaff(roster.staff || [])
-      setFetchedAt(data.fetched_at || '')
+      if (AUTH) {
+        const d = await api('GET', '/api/data')
+        setRows(d.rows || []); setStaff(d.staff || []); setFetchedAt(d.fetched_at || '')
+      } else {
+        const [data, roster] = await Promise.all([get('data.json'), get('roster.json')])
+        setRows(data.rows || [])
+        setStaff(roster.staff || [])
+        setFetchedAt(data.fetched_at || '')
+      }
       setError(null)
       setLoaded(true)
     } catch (e) {

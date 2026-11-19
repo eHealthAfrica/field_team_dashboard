@@ -6,3 +6,7 @@ dist
 __pycache__
 public/data
 .vite
+reference
+reports
+dist-auth
+server/node_modules

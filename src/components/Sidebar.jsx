@@ -1,4 +1,4 @@
-import { LayoutDashboard, UserCheck, Package, ShieldCheck, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react'
+import { LayoutDashboard, UserCheck, Package, ShieldCheck, AlertTriangle, ChevronLeft, ChevronRight, Users, LogOut, KeyRound } from 'lucide-react'
 import logo from '../assets/eha-logo-white.png'
 
 export const NAV = [
@@ -9,10 +9,13 @@ export const NAV = [
   { id: 'issues',     label: 'Issues',            icon: AlertTriangle },
 ]
 
+// Super Admins also get the user-management page (login mode only)
+export const USERS_NAV = { id: 'users', label: 'Users', icon: Users }
+
 export const SIDEBAR_W = 150
 export const SIDEBAR_COLLAPSED = 56
 
-export default function Sidebar({ page, onNavigate, collapsed, onToggle, rosterSize, stateCount }) {
+export default function Sidebar({ page, onNavigate, collapsed, onToggle, rosterSize, stateCount, items = NAV, user, onSignOut, onPassword }) {
   return (
     <aside className="no-print" style={{
       position: 'fixed', inset: '0 auto 0 0', width: collapsed ? SIDEBAR_COLLAPSED : SIDEBAR_W, zIndex: 50,
@@ -38,7 +41,7 @@ export default function Sidebar({ page, onNavigate, collapsed, onToggle, rosterS
       )}
 
       <nav style={{ flex: 1, padding: collapsed ? '12px 8px' : '0 8px', display: 'flex', flexDirection: 'column', gap: 2 }}>
-        {NAV.map(({ id, label, short, icon: Icon }) => {
+        {items.map(({ id, label, short, icon: Icon }) => {
           const active = page === id
           return (
             <button key={id} onClick={() => onNavigate(id)} title={label} aria-current={active ? 'page' : undefined}
@@ -60,6 +63,22 @@ export default function Sidebar({ page, onNavigate, collapsed, onToggle, rosterS
           )
         })}
       </nav>
+
+      {user && (
+        <div style={{ margin: collapsed ? '0 8px' : '0 10px', padding: '8px 0', borderTop: '1px solid rgba(255,255,255,.18)', display: 'flex', flexDirection: collapsed ? 'column' : 'row', alignItems: 'center', gap: 6 }}>
+          {!collapsed && (
+            <div style={{ flex: 1, minWidth: 0, color: '#fff', lineHeight: 1.3 }} title={`${user.username} · ${user.roleLabel}${user.states.length ? ` · ${user.states.join(', ')}` : ''}`}>
+              <div style={{ fontSize: 11.5, fontWeight: 650, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user.name || user.username}</div>
+              <div style={{ fontSize: 10, opacity: .8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user.roleLabel}</div>
+            </div>
+          )}
+          {[[KeyRound, 'Change password', onPassword], [LogOut, 'Sign out', onSignOut]].map(([Icon, t, fn]) => (
+            <button key={t} onClick={fn} title={t} aria-label={t} style={{ width: 26, height: 26, borderRadius: 7, border: 'none', cursor: 'pointer', flexShrink: 0, background: 'rgba(255,255,255,.16)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Icon size={13} />
+            </button>
+          ))}
+        </div>
+      )}
 
       <div style={{ padding: collapsed ? '12px 0' : '10px 12px 14px', display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'space-between', gap: 8 }}>
         {!collapsed && (

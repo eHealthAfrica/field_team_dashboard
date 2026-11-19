@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react'
-import Sidebar, { NAV, SIDEBAR_W, SIDEBAR_COLLAPSED } from './components/Sidebar'
+import Sidebar, { NAV, USERS_NAV, SIDEBAR_W, SIDEBAR_COLLAPSED } from './components/Sidebar'
+import PasswordModal from './components/PasswordModal'
+import Users from './pages/Users'
 import TopBar from './components/TopBar'
 import ReportModal from './components/ReportModal'
 import FilterBar, { HiddenFilters, DEFAULT_FILTERS } from './components/FilterBar'
@@ -11,7 +13,7 @@ import Issues from './pages/Issues'
 import { useData } from './hooks/useData'
 import { dataRange, filterRoster, filterRows, resolveRange } from './utils/data'
 
-const PAGES = { overview: Overview, attendance: Attendance, outputs: Outputs, quality: Quality, issues: Issues }
+const PAGES = { overview: Overview, attendance: Attendance, outputs: Outputs, quality: Quality, issues: Issues, users: Users }
 
 const INTRO = {
   overview:   'Daily presence and performance of eHA field coordinators',
@@ -19,6 +21,7 @@ const INTRO = {
   outputs:    'What field teams reported delivering, by activity',
   quality:    'Automated checks that point to check-ins worth verifying',
   issues:     'Challenges, security incidents and escalations from the field',
+  users:      'Who can sign in, their role and the states they see',
 }
 
 const store = {
@@ -26,17 +29,21 @@ const store = {
   set: (k, v) => { try { localStorage.setItem(k, v) } catch { /* ignore */ } },
 }
 
-export default function App() {
+export default function App({ user = null, onSignOut }) {
+  const isSuper = user?.role === 'superadmin'
+  const nav = isSuper ? [...NAV, USERS_NAV] : NAV
+  const allowed = p => !!PAGES[p] && (p !== 'users' || isSuper)
   // Page comes from the URL hash (shareable links), then the last page visited.
   const [page, setPage] = useState(() => {
     const h = window.location.hash.slice(1)
-    if (PAGES[h]) return h
-    return PAGES[store.get('ftd_page')] ? store.get('ftd_page') : 'overview'
+    if (allowed(h)) return h
+    return allowed(store.get('ftd_page')) ? store.get('ftd_page') : 'overview'
   })
   const [collapsed, setCollapsed] = useState(() => store.get('ftd_sidebar') === 'true')
   // Filter panel always starts hidden on page load; the eye button shows it for this visit only.
   const [showFilters, setShowFilters] = useState(false)
   const [showReport, setShowReport] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
   const toggleFilters = v => setShowFilters(v)
   const [filters, setFilters] = useState({ ...DEFAULT_FILTERS })
   const { rows, staff, fetchedAt, loading, loaded, error, refresh } = useData()
@@ -58,19 +65,21 @@ export default function App() {
     <div style={{ minHeight: '100vh' }}>
       <Sidebar page={page} onNavigate={navigate} collapsed={collapsed}
         onToggle={() => { setCollapsed(!collapsed); store.set('ftd_sidebar', String(!collapsed)) }}
-        rosterSize={staff.length} stateCount={states.length} />
+        rosterSize={staff.length} stateCount={states.length}
+        items={nav} user={user} onSignOut={onSignOut} onPassword={() => setShowPassword(true)} />
+      {showPassword && <PasswordModal onClose={() => setShowPassword(false)} />}
 
       <div className="app-main" style={{ marginLeft: sw, transition: 'margin-left .25s ease', minWidth: 0 }}>
         <TopBar
-          title={NAV.find(n => n.id === page).label}
-          subtitle={`${INTRO[page]} · ${scope} · ${roster.length} coordinators expected daily`}
+          title={nav.find(n => n.id === page).label}
+          subtitle={page === 'users' ? INTRO.users : `${INTRO[page]} · ${scope} · ${roster.length} coordinators expected daily`}
           fetchedAt={fetchedAt} loading={loading} error={error} onRefresh={refresh}
           onReport={() => setShowReport(true)}
         />
         {showReport && loaded && <ReportModal rows={rows} staff={staff} fetchedAt={fetchedAt} onClose={() => setShowReport(false)} />}
 
         <main style={{ padding: '10px 18px 16px', maxWidth: 1480 }}>
-          {loaded && (
+          {loaded && page !== 'users' && (
             <div style={{ marginBottom: 8 }}>
               {showFilters
                 ? <FilterBar filters={filters} onChange={setFilters} states={states} staff={staff} range={range} bounds={bounds} onHide={() => toggleFilters(false)} />
@@ -96,11 +105,11 @@ export default function App() {
             </div>
           )}
 
-          {loaded && <Page rows={rows} data={data} roster={roster} staff={staff} range={range} filters={filters} setFilters={setFilters} navigate={navigate} intent={intent} key={`${page}-${intent?.tab || ''}`} />}
+          {page === 'users' ? <Users me={user} /> : loaded && <Page rows={rows} data={data} roster={roster} staff={staff} range={range} filters={filters} setFilters={setFilters} navigate={navigate} intent={intent} key={`${page}-${intent?.tab || ''}`} />}
 
           <footer style={{ marginTop: 12, paddingTop: 8, borderTop: '1px solid var(--line)', display: 'flex', flexWrap: 'wrap', gap: 12, justifyContent: 'space-between', fontSize: 11.5, color: 'var(--ink-3)' }}>
             <span>eHealth Africa · Field Team Daily Check-in · Source: KoboToolbox, refreshed hourly</span>
-            <span>Coordinators are shown by post (LGA or state), not by name.</span>
+            <span>Coordinators are shown by post (LGA or state), not by name.{user && user.states.length ? ` You see: ${user.states.join(', ')}.` : ''}</span>
           </footer>
         </main>
       </div>
