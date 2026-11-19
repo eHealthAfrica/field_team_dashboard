@@ -7,13 +7,17 @@ Live site: https://ehealthafrica.github.io/field_team_dashboard/
 ## How it works
 
 ```
-KoboToolbox ──(hourly, :00)──▶ fetch_data.py ──▶ data/*.json committed ──(hourly, :10)──▶ build ──▶ GitHub Pages
+KoboToolbox ──(hourly, :10)──▶ fetch_data.py ──▶ build ──▶ GitHub Pages
 ```
 
-- `.github/workflows/fetch-data.yml` runs `fetch_data.py` every hour. It needs the repo secret **`KOBO_TOKEN`**.
-  - `data/data.json`: cleaned check-ins.
-  - `data/roster.json`: everyone expected to check in, taken from the form's `c_data.csv` media file, so it stays in sync with the form.
-- `.github/workflows/deploy.yml` builds and deploys on every push and at :10 past each hour. It needs its own schedule because commits pushed with `GITHUB_TOKEN` don't trigger other workflows.
+- `.github/workflows/deploy.yml` runs hourly (at :10) and on every merge to `main`. It needs the repo secret **`KOBO_TOKEN`**. It:
+  1. starts from the data currently live on the site,
+  2. runs `fetch_data.py` to refresh it from Kobo, writing
+     - `data/data.json`: cleaned check-ins,
+     - `data/roster.json`: everyone expected to check in, taken from the form's `c_data.csv` media file,
+  3. builds the dashboard and publishes it.
+- Data is **not committed back to the repository**, because `main` is protected (changes go through reviewed pull requests). If Kobo is briefly unavailable, the run publishes the last available data instead of failing.
+- The files in `data/` in the repo are only a starting snapshot; the live data is on the site.
 - The page re-polls the data every 10 minutes.
 
 **Privacy (the repo is public):** the fetch script never writes staff names, phone numbers, device IDs, GPS coordinates or photo links. Coordinators are identified by post (e.g. "Fagge LGA", "Kano SC") and matched to the roster with a short one-way hash of their login key.

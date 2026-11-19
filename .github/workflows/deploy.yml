@@ -1,7 +1,9 @@
 name: Build and Deploy
 
-# Runs on push, and also on its own schedule: commits pushed by the fetch
-# workflow use GITHUB_TOKEN, which does not trigger other workflows.
+# Fetches the latest Kobo data and publishes the dashboard to GitHub Pages,
+# hourly and on every merge to main. The data goes straight into the published
+# site - nothing is committed back to the repository, so this works with the
+# protected main branch.
 on:
   push:
     branches: [main]
@@ -34,7 +36,24 @@ jobs:
 
       - run: npm ci
 
-      - name: Copy latest data into public
+      # Start from the data currently live on the site, so a Kobo outage keeps
+      # the last good data rather than going back to the repo's older snapshot.
+      - name: Start from the last published data
+        run: |
+          for f in data.json roster.json; do
+            curl -sfL "https://ehealthafrica.github.io/field_team_dashboard/data/$f" -o "data/$f.live" \
+              && python3 -c "import json,sys; json.load(open(sys.argv[1]))" "data/$f.live" \
+              && mv "data/$f.live" "data/$f" || rm -f "data/$f.live"
+          done
+
+      # Refresh from Kobo. If Kobo is unavailable the deploy still goes ahead
+      # with the data above, so a temporary outage does not fail the run.
+      - name: Fetch latest data from KoboToolbox
+        env:
+          KOBO_TOKEN: ${{ secrets.KOBO_TOKEN }}
+        run: python3 fetch_data.py || echo "::warning::Kobo fetch failed - publishing the last available data"
+
+      - name: Copy data into the site
         run: |
           mkdir -p public/data
           cp data/*.json public/data/
