@@ -1,10 +1,19 @@
-# Used by ERITAS (push-to-deploy). ERITAS routes its subdomain to port 80
-# and supplies kobo_token from the project's environment settings.
+# Used by ERITAS (push-to-deploy). ERITAS routes the app's subdomain to the
+# container port and supplies these values from the project's environment settings.
 services:
   web:
     build: .
     expose:
-      - "80"
+      - "8080"
     environment:
       KOBO_TOKEN: ${kobo_token:-}
+      DATABASE_URL: ${DATABASE_URL:-${database_url:-}}
+      PGSCHEMA: ${pgschema:-field_team}
+      PGSSL: ${pgssl:-0}
+      # Sign-in cookies are HTTPS-only. Set cookie_secure=0 only if the site is reached over plain http.
+      COOKIE_SECURE: ${cookie_secure:-1}
+      # First start only: creates the first Super Admin when there are no users.
+      # Remove SUPERADMIN_PASSWORD from ERITAS once you have signed in.
+      SUPERADMIN_USERNAME: ${superadmin_username:-}
+      SUPERADMIN_PASSWORD: ${superadmin_password:-}
     restart: unless-stopped

@@ -1,33 +1,58 @@
 import { useMemo, useState } from 'react'
-import { X, FileText, Loader2, CheckCircle2 } from 'lucide-react'
-import { analyseCycle, cycleBounds, cycleName, cyclesInData, downloadMonthlyReport, DEFAULT_EXPECTED_DAYS } from '../utils/monthlyReport'
+import { X, FileText, FileType2, Presentation, Loader2, CheckCircle2 } from 'lucide-react'
+import { analyseCycle, cycleBounds, cycleName, cyclesInData, downloadReport, DEFAULT_EXPECTED_DAYS } from '../utils/monthlyReport'
+import { daysBetween } from '../utils/data'
 
 const fd = d => new Date(`${d}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
 
+// Expected valid days for a period: the standard 22 for a full cycle (~31 days),
+// in proportion for a shorter or longer period, never more than the days in it.
+const suggestExpected = (from, to) => {
+  const n = daysBetween(from, to).length
+  return Math.max(1, Math.min(n, Math.round(DEFAULT_EXPECTED_DAYS * n / 31)))
+}
+const cycleLen = c => { const b = cycleBounds(c); return daysBetween(b.from, b.to).length }
+
+const FORMATS = [
+  { id: 'docx', label: 'Word', icon: FileText, primary: true },
+  { id: 'pdf', label: 'PDF', icon: FileType2 },
+  { id: 'pptx', label: 'PowerPoint', icon: Presentation },
+]
+
 // Month-end report download: the PM's "Field Consultants' Check-in & Field
 // Performance Report" template, filled from the dashboard data for one
-// reporting cycle (24th of the previous month to the 23rd).
+// reporting cycle (24th of the previous month to the 23rd). Word and PDF carry
+// the full report; PowerPoint is a summary deck of the same figures.
 export default function ReportModal({ rows, staff, fetchedAt, onClose }) {
   const cycles = useMemo(() => cyclesInData(rows), [rows])
   const states = useMemo(() => [...new Set(staff.map(s => s.state))].sort(), [staff])
-  const [cycle, setCycle] = useState(cycles[0])
+  const dataFrom = useMemo(() => rows.reduce((m, r) => (!m || r.date < m ? r.date : m), ''), [rows])
+  const dataTo = useMemo(() => rows.reduce((m, r) => (r.date > m ? r.date : m), ''), [rows])
+  // Period: any From/To dates; each reporting cycle (24th-23rd) is a one-click preset.
+  const first = cycles[0] ? cycleBounds(cycles[0]) : { from: dataFrom, to: dataTo }
+  const [from, setFrom] = useState(first.from)
+  const [to, setTo] = useState(first.to)
   const [state, setState] = useState('all')
   const [expectedDays, setExpectedDays] = useState(DEFAULT_EXPECTED_DAYS)
-  const [busy, setBusy] = useState(false)
+  const setPeriod = (f, t, exp) => { setFrom(f); setTo(t); if (f && t && f <= t) setExpectedDays(exp ?? suggestExpected(f, t)) }
+  const activeCycle = cycles.find(c => { const b = cycleBounds(c); return b.from === from && b.to === to })
+  const badRange = !from || !to || from > to
+  const noData = !badRange && !rows.some(r => r.date >= from && r.date <= to)
+  const [busy, setBusy] = useState(null)
   const [done, setDone] = useState(null)
   const [err, setErr] = useState(null)
 
-  const preview = useMemo(() => (cycle ? analyseCycle({ rows, staff, cycle, state, expectedDays }) : null), [rows, staff, cycle, state, expectedDays])
+  const preview = useMemo(() => (badRange || noData ? null : analyseCycle({ rows, staff, from, to, state, expectedDays })), [rows, staff, from, to, state, expectedDays, badRange, noData])
 
-  const go = async () => {
-    setBusy(true); setDone(null); setErr(null)
+  const go = async format => {
+    setBusy(format); setDone(null); setErr(null)
     try {
-      const r = await downloadMonthlyReport({ rows, staff, cycle, state, expectedDays, fetchedAt })
+      const r = await downloadReport({ rows, staff, from, to, state, expectedDays, fetchedAt }, format)
       setDone(r.name)
     } catch (e) {
       console.error(e); setErr(e.message || String(e))
     } finally {
-      setBusy(false)
+      setBusy(null)
     }
   }
 
@@ -37,12 +62,12 @@ export default function ReportModal({ rows, staff, fetchedAt, onClose }) {
     <div className="no-print" role="dialog" aria-modal="true" aria-label="Download month-end report"
       style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(15,23,32,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="card" style={{ width: '100%', maxWidth: 520, boxShadow: '0 24px 64px rgba(15,23,32,.3)' }}>
+      <div className="card" style={{ width: '100%', maxWidth: 540, boxShadow: '0 24px 64px rgba(15,23,32,.3)' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
           <div>
             <div style={{ fontSize: 15, fontWeight: 700 }}>Download month-end report</div>
             <div style={{ fontSize: 11.5, color: 'var(--ink-3)', marginTop: 2 }}>
-              Field Consultants’ Check-in & Field Performance Report (Word), filled from the dashboard data
+              Full report in Word or PDF, or a summary deck in PowerPoint, filled from the dashboard data
             </div>
           </div>
           <button onClick={onClose} aria-label="Close" style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--ink-3)' }}><X size={18} /></button>
@@ -50,10 +75,40 @@ export default function ReportModal({ rows, staff, fetchedAt, onClose }) {
 
         <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
-            <label style={label}>Reporting cycle (24th to 23rd)</label>
-            <select className="filter-select" style={{ width: '100%' }} value={cycle} onChange={e => setCycle(e.target.value)}>
-              {cycles.map(c => { const b = cycleBounds(c); return <option key={c} value={c}>{cycleName(c)} · {fd(b.from)} – {fd(b.to)}</option> })}
-            </select>
+            <label style={label}>Report period</label>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 3 }}>From</div>
+                <input type="date" className="filter-select" style={{ width: '100%', paddingRight: 10 }} value={from} max={to || undefined}
+                  onChange={e => setPeriod(e.target.value, to)} />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 3 }}>To</div>
+                <input type="date" className="filter-select" style={{ width: '100%', paddingRight: 10 }} value={to} min={from || undefined}
+                  onChange={e => setPeriod(from, e.target.value)} />
+              </div>
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 8, fontSize: 11.5 }}>
+              <span style={{ color: 'var(--ink-3)' }}>Quick pick:</span>
+              {cycles.map(c => {
+                const b = cycleBounds(c), on = activeCycle === c
+                return (
+                  <button key={c} type="button" onClick={() => setPeriod(b.from, b.to, DEFAULT_EXPECTED_DAYS)}
+                    title={`${fd(b.from)} – ${fd(b.to)} (${cycleLen(c)} days)`}
+                    style={{ border: `1px solid ${on ? 'var(--eha-blue, #0090fc)' : 'var(--line)'}`, background: on ? '#e6f4ff' : '#fff', color: on ? '#0078d4' : 'var(--ink-2)', borderRadius: 999, padding: '3px 10px', cursor: 'pointer', fontSize: 11.5, fontWeight: on ? 600 : 500 }}>
+                    {cycleName(c)} cycle (24th–23rd)
+                  </button>
+                )
+              })}
+              {dataFrom && (
+                <button type="button" onClick={() => setPeriod(dataFrom, dataTo)}
+                  style={{ border: '1px solid var(--line)', background: '#fff', color: 'var(--ink-2)', borderRadius: 999, padding: '3px 10px', cursor: 'pointer', fontSize: 11.5 }}>
+                  All data ({fd(dataFrom)} – {fd(dataTo)})
+                </button>
+              )}
+            </div>
+            {badRange && <div style={{ fontSize: 12, color: 'var(--crit-ink)', marginTop: 6 }}>Choose a From date on or before the To date.</div>}
+            {noData && <div style={{ fontSize: 12, color: 'var(--warn-ink)', marginTop: 6 }}>No check-ins in this period. Data runs from {fd(dataFrom)} to {fd(dataTo)}.</div>}
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 140px', gap: 12 }}>
             <div>
@@ -64,7 +119,7 @@ export default function ReportModal({ rows, staff, fetchedAt, onClose }) {
               </select>
             </div>
             <div>
-              <label style={label} title="Standard used in the LC monthly reports">Expected valid days</label>
+              <label style={label} title="22 for a full reporting cycle, as in the LC monthly reports; set in proportion for other periods. You can change it.">Expected valid days</label>
               <input type="number" min={1} max={31} className="filter-select" style={{ width: '100%', paddingRight: 10 }}
                 value={expectedDays} onChange={e => setExpectedDays(Math.max(1, Math.min(31, Number(e.target.value) || DEFAULT_EXPECTED_DAYS)))} />
             </div>
@@ -73,10 +128,10 @@ export default function ReportModal({ rows, staff, fetchedAt, onClose }) {
           {preview && (
             <div style={{ background: '#f6f8fa', border: '1px solid var(--line-soft)', borderRadius: 10, padding: '10px 12px', fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.55 }}>
               {preview.partial && <div style={{ fontWeight: 600, color: 'var(--warn-ink)', marginBottom: 4 }}>
-                Cycle still running - this will be a draft with data to {fd(preview.periodEnd)}.</div>}
+                Period runs past the latest data - this will be a draft with data to {fd(preview.periodEnd)}.</div>}
               <div><strong>{preview.total.toLocaleString()}</strong> submissions over {preview.liveDays.length} days · <strong>{preview.valid.toLocaleString()}</strong> valid ({Math.round(100 * preview.valid / Math.max(1, preview.total))}%)</div>
               <div><strong>{preview.met}</strong> of {preview.people.length} consultants met {preview.expected} valid days
-                {preview.expected < expectedDays && <span style={{ color: 'var(--ink-3)' }}> (the {expectedDays}-day standard scaled to the {preview.liveDays.length} days with data)</span>}</div>
+                {preview.expected < expectedDays && <span style={{ color: 'var(--ink-3)' }}> (the {expectedDays} expected days scaled to the {preview.liveDays.length} days with data)</span>}</div>
               <div><strong>{preview.outside.length}</strong> outside-LGA exceptions · <strong>{preview.security.length}</strong> security · <strong>{preview.critical.length}</strong> critical</div>
             </div>
           )}
@@ -85,11 +140,16 @@ export default function ReportModal({ rows, staff, fetchedAt, onClose }) {
           {done && <div style={{ fontSize: 12, color: 'var(--good-ink)', display: 'flex', alignItems: 'center', gap: 6 }}><CheckCircle2 size={14} /> Downloaded {done}</div>}
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 20px', borderTop: '1px solid var(--line)' }}>
-          <button className="btn-secondary" onClick={onClose}>Close</button>
-          <button className="btn-primary" onClick={go} disabled={busy || !cycle}>
-            {busy ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />} {busy ? 'Building…' : 'Download Word report'}
-          </button>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 8, padding: '12px 20px', borderTop: '1px solid var(--line)' }}>
+          <button className="btn-secondary" onClick={onClose} style={{ marginRight: 'auto' }}>Close</button>
+          {FORMATS.map(f => {
+            const Icon = busy === f.id ? Loader2 : f.icon
+            return (
+              <button key={f.id} className={f.primary ? 'btn-primary' : 'btn-secondary'} onClick={() => go(f.id)} disabled={!!busy || !preview}>
+                <Icon size={14} className={busy === f.id ? 'animate-spin' : undefined} /> {busy === f.id ? 'Building…' : f.label}
+              </button>
+            )
+          })}
         </div>
       </div>
     </div>

@@ -46,7 +46,42 @@ python scripts/monthly_report.py --cycle 2026-11    # 24 Oct - 23 Nov 2026
 
 It writes a Word report and an Excel annex (consultant summary, below-threshold lists, outside-LGA log, security and critical issues, record-level flags, daily attendance grid, activities by state) to `reports/`. **The report contains staff names, so `reports/` is gitignored and must never be committed.**
 
-Validity rules (applied the same way every cycle): a submission is invalid if it is outside the assigned LGA with no redeployment code, has a date problem (finished another day, or phone clock set back), is dated outside the cycle, or is an extra check-in on a day already counted. Valid days = distinct days with at least one valid check-in. The expected-days threshold defaults to 22 of the cycle (as in the LC reports) and scales in proportion when only part of the cycle has data (a new form, or a draft before the 23rd). The dashboard's **Download report** button builds the same report in the browser, identifying consultants by post; the script version adds names and an Excel annex for internal use.
+Validity rules (applied the same way every cycle): a submission is invalid if it is outside the assigned LGA with no redeployment code, has a date problem (finished another day, or phone clock set back), is dated outside the cycle, or is an extra check-in on a day already counted. Valid days = distinct days with at least one valid check-in. The expected-days threshold defaults to 22 of the cycle (as in the LC reports) and scales in proportion when only part of the cycle has data (a new form, or a draft before the 23rd). The dashboard's **Download report** button builds the same report in the browser as **Word or PDF** (full report) or **PowerPoint** (summary deck), identifying consultants by post. Narrative, root causes, risks, priorities, owners and due dates are drafted from the data by fixed rules for the reviewer to confirm; only the reviewer's name, signatures and the supervisor's assessment are left blank. The script version adds names and an Excel annex for internal use.
+
+## Login version (ERITAS)
+
+The same code builds two ways:
+
+- **Public (GitHub Pages):** static site, no login, reads `data/*.json`. Being retired once the login version is live.
+- **Login (ERITAS):** `Dockerfile` builds the dashboard with `VITE_AUTH=1` and runs `server/` (Node + Express + PostgreSQL). People sign in with a username and password created by a Super Admin, and the server sends each person only the data their role allows, so changing filters in the browser cannot show other states.
+
+| Role | Sees | Can manage users |
+|---|---|---|
+| State Coordinator | one state | no |
+| Senior Supervisor | the states assigned to them | no |
+| Admin | all states | no |
+| Super Admin | all states | yes (Users page) |
+
+ERITAS environment:
+
+| Variable | Purpose |
+|---|---|
+| `DATABASE_URL` | PostgreSQL connection (ERITAS provides it). Tables are created in the `PGSCHEMA` schema (default `field_team`). |
+| `kobo_token` | Kobo API token for the hourly data refresh |
+| `superadmin_username`, `superadmin_password` | First start only: creates the first Super Admin when there are no users. Remove the password once signed in. |
+| `pgssl` | `1` if the database requires SSL |
+| `cookie_secure` | Default `1`: sign-in cookies are sent over HTTPS only. Set `0` only if the site is opened over plain `http://` (sign-in fails silently otherwise). |
+
+Passwords are stored as bcrypt hashes; sessions are random tokens in an HttpOnly cookie (7 days), ended on sign-out, password change, or when a Super Admin changes the user. Ten failed sign-ins lock out an IP or username for 15 minutes. If every Super Admin is locked out, run inside the container: `NEW_PASSWORD='...' node server/manage.js set-password <username>`.
+
+Try it locally (in-memory database, nothing saved):
+
+```bash
+cd server && npm install && cd ..
+VITE_AUTH=1 BASE_PATH=/ npx vite build --outDir dist-auth
+node server/dev.js          # http://localhost:4180 - accounts are listed at the top of server/dev.js
+cd server && npm test       # API tests: role scoping, sessions, user management
+```
 
 ## Local development
 
