@@ -42,7 +42,20 @@ from openpyxl.utils import get_column_letter  # noqa: E402
 
 REPORT_DIR = os.path.join(ROOT, "reports")
 CACHE = os.path.join(REPORT_DIR, "_kobo_cache.json")
-DEFAULT_EXPECTED_DAYS = 22          # set in the PM's report template; never scaled
+# Expected valid days per cycle, set by the Programme Manager. Never scaled.
+EXPECTED_DAYS = {"lc": 15, "sc": 22}
+DEFAULT_EXPECTED_DAYS = None        # kept for the CLI flag; the per-role values apply
+
+
+def exp_for(role):
+    return EXPECTED_DAYS.get(role, EXPECTED_DAYS["lc"])
+
+
+def exp_text(people):
+    has = lambda r: any(p["role"] == r for p in people)
+    parts = [f"{EXPECTED_DAYS['lc']} valid days for LGA Coordinators" if has("lc") else None,
+             f"{EXPECTED_DAYS['sc']}{'' if has('lc') else ' valid days'} for State Coordinators" if has("sc") else None]
+    return " and ".join(x for x in parts if x) or f"{EXPECTED_DAYS['lc']} valid days"
 NAVY = "123B5D"                     # template header colour
 
 # Invalid-record rules, applied the same way every cycle.
@@ -180,7 +193,6 @@ def analyse(staff, recs, start, end, as_of, expected_cfg, failed_logins):
     live_start = max(start, first_data)
     live_days = days(live_start, period_end)
     # The PM's standard as written in the template; not scaled for drafts.
-    expected = expected_cfg
 
     by_uid = collections.defaultdict(list)
     for x in recs:
@@ -193,7 +205,7 @@ def analyse(staff, recs, start, end, as_of, expected_cfg, failed_logins):
         people.append({
             **p, "total": len(rs), "invalid": sum(not x["valid"] for x in rs), "valid": sum(x["valid"] for x in rs),
             "valid_days": len(vdays), "total_days": len({x["d"] for x in rs}),
-            "met": len(vdays) >= expected,
+            "exp": exp_for(p["role"]), "met": len(vdays) >= exp_for(p["role"]),
             "last": max((x["d"] for x in rs), default=None),
             "reasons": collections.Counter(x["reason"] for x in rs if x["reason"]),
         })
@@ -276,14 +288,14 @@ def analyse(staff, recs, start, end, as_of, expected_cfg, failed_logins):
 
     total, valid = len(recs), sum(x["valid"] for x in recs)
     return {
-        "live_start": live_start, "period_end": period_end, "live_days": live_days, "expected": expected,
+        "live_start": live_start, "period_end": period_end, "live_days": live_days, "expected": exp_text(people),
         "expected_cfg": expected_cfg, "people": people, "states": states, "outside": out_rows, "dq": dq,
         "act": act, "outputs": outputs, "orphans": orphans, "failed_logins": failed_logins,
         "total": total, "valid": valid, "invalid": total - valid,
         "reasons": collections.Counter(x["reason"] for x in recs if x["reason"]),
         "reporting": sum(1 for p in people if p["total"]), "met": sum(p["met"] for p in people),
         "below_valid": [p for p in people if not p["met"]],
-        "below_total": [p for p in people if p["total"] < expected],
+        "below_total": [p for p in people if p["total"] < p["exp"]],
         "security": [x for x in recs if x["security"]], "critical": [x for x in recs if x["critical"]],
         "flags": flag_n, "recs": recs,
     }
@@ -371,14 +383,14 @@ def write_docx(a, cycle, start, end, fetched, path):
     best = sorted(a["states"], key=lambda s: -s["coverage"])[:2]; worst = sorted(a["states"], key=lambda s: s["coverage"])[:2]
     para(doc, f"Over {nd} reporting day{'s' if nd != 1 else ''} ({fmt(a['live_start'])} – {fmt(a['period_end'])}), {a['reporting']} of {len(a['people'])} "
               f"consultants submitted check-ins: {a['total']:,} submissions, of which {a['valid']:,} ({pct(a['valid'], a['total'])}%) were valid. "
-              f"{a['met']} consultants ({pct(a['met'], len(a['people']))}%) reached {exp} valid days; {below} did not. "
+              f"{a['met']} consultants ({pct(a['met'], len(a['people']))}%) reached the expected valid days ({exp}); {below} did not. "
               f"{len(a['outside'])} consultants checked in outside their assigned LGA at least once; {pend} of these still need verification. "
               f"Coordinators raised {len(a['security'])} security incidents and {len(a['critical'])} critical issues.")
     table(doc, ["Executive summary element", "Narrative / result"], [
         ["Overall performance status", todo("Green / Amber / Red, with a brief explanation - reviewer's judgement against the agreed standard")],
         ["Key achievement(s)", f"Highest valid-day coverage: {', '.join(f'{s['state']} ({s['coverage']}%)' for s in best)}. "
                                f"{pct(a['valid'], a['total'])}% of submissions valid."],
-        ["Key concern(s)", f"{below} consultants below {exp} valid days; lowest coverage in {', '.join(f'{s['state']} ({s['coverage']}%)' for s in worst)}; "
+        ["Key concern(s)", f"{below} consultants below the expected valid days; lowest coverage in {', '.join(f'{s['state']} ({s['coverage']}%)' for s in worst)}; "
                            f"{pend} unverified outside-LGA exceptions."],
         ["Management attention required", todo("decision, support or escalation required")],
         ["Overall conclusion", todo("one-paragraph assessment")],
@@ -388,7 +400,7 @@ def write_docx(a, cycle, start, end, fetched, path):
     h1(doc, "2. Reporting scope and methodology")
     table(doc, ["Item", "Specification"], [
         ["Reporting period", f"{fmt(start)} – {fmt(end)} (cycle ends on the 23rd)" + (f"; this draft covers data to {fmt(a['period_end'])}" if partial else "")],
-        ["Expected reporting days", f"{exp} valid days, as set in the report template" + (f". The cycle is not finished (data to {a['period_end']}), so counts below {exp} are so far, not final" if a["period_end"] < end else "")],
+        ["Expected reporting days", f"{exp}, as set by the Programme Manager" + (f". The cycle is not finished (data to {a['period_end']}), so counts below these are so far, not final" if a["period_end"] < end else "")],
         ["Consultant population", f"{len(a['people'])} on the approved roster (form media c_data.csv): "
                                   f"{sum(p['role'] == 'lc' for p in a['people'])} LGA Coordinators, {sum(p['role'] == 'sc' for p in a['people'])} State Coordinators"],
         ["Data source(s)", "KoboToolbox form 'Field Team Daily Check-in' (asset aV89vgirjJgfzTNDBDGGzE): submissions, GPS boundary check, selfie, form-built quality flags"],
@@ -410,9 +422,9 @@ def write_docx(a, cycle, start, end, fetched, path):
         ["Valid submissions", f"{a['valid']:,}", "Records passing the validation rules (section 2)"],
         ["Invalid submissions", f"{a['invalid']:,}", "; ".join(f"{RULE_TEXT[k].split(' (')[0]}: {v}" for k, v in a["reasons"].most_common())],
         ["Valid submission rate", f"{pct(a['valid'], a['total'])}%", "Valid ÷ total submissions × 100"],
-        ["Consultants meeting expected days", f"{a['met']} / {pct(a['met'], len(a['people']))}%", f"Consultants with ≥{exp} valid days"],
-        ["Consultants below expected valid days", below, f"Fewer than {exp} valid days (Annex B)"],
-        ["Consultants below expected total counts", len(a["below_total"]), f"Fewer than {exp} total check-in records (Annex C)"],
+        ["Consultants meeting expected days", f"{a['met']} / {pct(a['met'], len(a['people']))}%", f"Consultants with at least the expected valid days for their role ({exp})"],
+        ["Consultants below expected valid days", below, "Fewer valid days than expected for their role (Annex B)"],
+        ["Consultants below expected total counts", len(a["below_total"]), "Fewer total check-in records than the expected days for their role (Annex C)"],
         ["Outside-assigned-LGA exceptions", f"{len(a['outside'])} consultants / {sum(o['days'] for o in a['outside'])} days", "Days with a check-in outside the assigned LGA (Annex D)"],
         ["Records with missing coordinates", f"{miss_gps} / {pct(miss_gps, a['total'])}%", "Submissions without GPS ÷ all submissions"],
         ["Records with identity/contact flags", a["failed_logins"] + a["flags"].get("other_user_on_phone", 0), "Unmatched logins + phone last used by another consultant"],
@@ -471,7 +483,7 @@ def write_docx(a, cycle, start, end, fetched, path):
 
     # 8 Exceptions
     h1(doc, "8. Performance exceptions and root-cause analysis")
-    para(doc, f"8.1 Consultants below {exp} valid days: {below} (listed in 4.1 and Annex B, with invalid-record reasons).", size=10)
+    para(doc, f"8.1 Consultants below the expected valid days: {below} (listed in 4.1 and Annex B, with invalid-record reasons).", size=10)
     rc = collections.Counter()
     for p in a["below_valid"]:
         if p["total"] == 0:
@@ -490,7 +502,7 @@ def write_docx(a, cycle, start, end, fetched, path):
     h1(doc, "10. Corrective action and improvement tracker")
     acts = []
     if below:
-        acts.append(f"Follow up the {below} consultants below {exp} valid days (Annex B)")
+        acts.append(f"Follow up the {below} consultants below the expected valid days (Annex B)")
     if pend:
         acts.append(f"Verify the {pend} pending outside-LGA exceptions (Annex D)")
     old = sum(1 for o in a["outside"] if "old form" in o["outcome"])
@@ -510,7 +522,7 @@ def write_docx(a, cycle, start, end, fetched, path):
     h1(doc, "Annexes (Excel workbook)")
     table(doc, ["Annex", "Content"], [
         ["A", "Consultant-level submission and validity summary (all consultants)"],
-        ["B", f"Consultants below {exp} valid days"], ["C", f"Consultants below {exp} days with any submission"],
+        ["B", "Consultants below the expected valid days"], ["C", "Consultants below the expected total check-in records"],
         ["D", "Outside-assigned-LGA exception log and verification notes"],
         ["E", "Security incidents and critical issues"], ["F", "Data-quality flags, record level (Kobo IDs)"],
         ["G", "Daily attendance grid"], ["H", "Activities and outputs by state"],
@@ -521,7 +533,7 @@ def write_docx(a, cycle, start, end, fetched, path):
         ["Valid submission", "A record that breaks none of the rules in section 2. Only the first valid record per consultant per day counts."],
         ["Invalid submission", "A record excluded by a rule; the reason is listed per record in Annex F."],
         ["Valid days", "Distinct days with at least one valid check-in."],
-        ["Compliance threshold", f"{exp} valid days, as set in the report template."],
+        ["Compliance threshold", f"{exp}, as set by the Programme Manager."],
         ["Outside-LGA exception", "Check-in outside the assigned LGA by the form's GPS boundary check. Verified when a redeployment release code was entered."],
         ["Coverage rate", "Valid days ÷ (consultants × reporting days)."],
         ["Reporting population", "Approved roster in the form (c_data.csv) at the cut-off."],
@@ -550,9 +562,9 @@ def write_xlsx(a, start, end, path):
     ppl = sorted(a["people"], key=lambda p: (p["state"], p["role"] != "sc", p["lga"]))
     reason_cols = list(RULE_TEXT)
     sheet("A Consultant summary", ["Consultant", "Role", "State", "LGA", "Total submissions", "Invalid", "Valid", "Valid days",
-                                   "Days with any submission", f"Met {a['expected']} days?", "Last check-in"] + [f"Invalid: {k}" for k in reason_cols],
+                                   "Days with any submission", "Expected days", "Met?", "Last check-in"] + [f"Invalid: {k}" for k in reason_cols],
           [[p["name"], "State Coordinator" if p["role"] == "sc" else "LGA Coordinator", p["state"], p["lga"], p["total"], p["invalid"], p["valid"],
-            p["valid_days"], p["total_days"], "Met" if p["met"] else "Not met", p["last"].isoformat() if p["last"] else "None"] +
+            p["valid_days"], p["total_days"], p["exp"], "Met" if p["met"] else "Not met", p["last"].isoformat() if p["last"] else "None"] +
            [p["reasons"].get(k, 0) for k in reason_cols] for p in ppl], first=True)
     sheet("B Below valid days", ["Consultant", "State", "LGA", "Total submissions", "Invalid", "Valid days", "Reason / explanation", "Supervisor assessment", "Action"],
           [[p["name"], p["state"], p["lga"], p["total"], p["invalid"], p["valid_days"], "", "", ""] for p in sorted(a["below_valid"], key=lambda p: (p["valid_days"], p["state"]))])
@@ -602,7 +614,7 @@ def main():
     write_docx(a, cycle, start, end, fetched, docx_path)
     write_xlsx(a, start, end, xlsx_path)
     print(f"Cycle {cycle}: {fmt(start)} - {fmt(end)}; data {fmt(a['live_start'])} - {fmt(a['period_end'])} ({len(a['live_days'])} days)")
-    print(f"  {a['total']} submissions, {a['valid']} valid; {a['met']}/{len(a['people'])} met {a['expected']} valid days")
+    print(f"  {a['total']} submissions, {a['valid']} valid; {a['met']}/{len(a['people'])} met the expected valid days ({a['expected']})")
     print(f"  wrote {os.path.relpath(docx_path)}\n  wrote {os.path.relpath(xlsx_path)}")
 
 
