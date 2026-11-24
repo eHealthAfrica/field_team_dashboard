@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { X, FileText, FileType2, Presentation, Loader2, CheckCircle2 } from 'lucide-react'
-import { analyseCycle, cycleBounds, cycleName, cyclesInData, downloadReport, DEFAULT_EXPECTED_DAYS } from '../utils/monthlyReport'
+import { analyseCycle, cycleBounds, cycleName, cyclesInData, downloadReport } from '../utils/monthlyReport'
 import { daysBetween } from '../utils/data'
 
 const fd = d => new Date(`${d}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
@@ -27,8 +27,6 @@ export default function ReportModal({ rows, staff, fetchedAt, onClose }) {
   const [from, setFrom] = useState(first.from)
   const [to, setTo] = useState(first.to)
   const [state, setState] = useState('all')
-  // the PM's standard from the report template; not editable, not scaled
-  const expectedDays = DEFAULT_EXPECTED_DAYS
   const setPeriod = (f, t) => { setFrom(f); setTo(t) }
   const activeCycle = cycles.find(c => { const b = cycleBounds(c); return b.from === from && b.to === to })
   const badRange = !from || !to || from > to
@@ -37,12 +35,12 @@ export default function ReportModal({ rows, staff, fetchedAt, onClose }) {
   const [done, setDone] = useState(null)
   const [err, setErr] = useState(null)
 
-  const preview = useMemo(() => (badRange || noData ? null : analyseCycle({ rows, staff, from, to, state, expectedDays })), [rows, staff, from, to, state, expectedDays, badRange, noData])
+  const preview = useMemo(() => (badRange || noData ? null : analyseCycle({ rows, staff, from, to, state })), [rows, staff, from, to, state, badRange, noData])
 
   const go = async format => {
     setBusy(format); setDone(null); setErr(null)
     try {
-      const r = await downloadReport({ rows, staff, from, to, state, expectedDays, fetchedAt }, format)
+      const r = await downloadReport({ rows, staff, from, to, state, fetchedAt }, format)
       setDone(r.name)
     } catch (e) {
       console.error(e); setErr(e.message || String(e))
@@ -120,8 +118,8 @@ export default function ReportModal({ rows, staff, fetchedAt, onClose }) {
               {preview.partial && <div style={{ fontWeight: 600, color: 'var(--warn-ink)', marginBottom: 4 }}>
                 Period runs past the latest data - this will be a draft with data to {fd(preview.periodEnd)}.</div>}
               <div><strong>{preview.total.toLocaleString()}</strong> submissions over {preview.liveDays.length} days · <strong>{preview.valid.toLocaleString()}</strong> valid ({Math.round(100 * preview.valid / Math.max(1, preview.total))}%)</div>
-              <div><strong>{preview.met}</strong> of {preview.people.length} consultants have {preview.expected}+ valid days{preview.partial ? ' so far' : ''}
-                <span style={{ color: 'var(--ink-3)' }}> (the PM's standard of {preview.expected} valid days)</span></div>
+              <div><strong>{preview.met}</strong> of {preview.people.length} consultants met the expected valid days{preview.partial ? ' so far' : ''}
+                <span style={{ color: 'var(--ink-3)' }}> ({preview.expected})</span></div>
               <div><strong>{preview.outside.length}</strong> outside-LGA exceptions · <strong>{preview.security.length}</strong> security · <strong>{preview.critical.length}</strong> critical</div>
             </div>
           )}
