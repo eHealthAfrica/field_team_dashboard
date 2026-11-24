@@ -44,7 +44,6 @@ REPORT_DIR = os.path.join(ROOT, "reports")
 CACHE = os.path.join(REPORT_DIR, "_kobo_cache.json")
 # Expected valid days per cycle, set by the Programme Manager. Never scaled.
 EXPECTED_DAYS = {"lc": 15, "sc": 22}
-DEFAULT_EXPECTED_DAYS = None        # kept for the CLI flag; the per-role values apply
 
 
 def exp_for(role):
@@ -56,6 +55,8 @@ def exp_text(people):
     parts = [f"{EXPECTED_DAYS['lc']} valid days for LGA Coordinators" if has("lc") else None,
              f"{EXPECTED_DAYS['sc']}{'' if has('lc') else ' valid days'} for State Coordinators" if has("sc") else None]
     return " and ".join(x for x in parts if x) or f"{EXPECTED_DAYS['lc']} valid days"
+
+
 NAVY = "123B5D"                     # template header colour
 
 # Invalid-record rules, applied the same way every cycle.
@@ -187,12 +188,11 @@ def build(raw, roster_rows, start, end):
 
 # ----------------------------------------------------------------------------- analysis
 
-def analyse(staff, recs, start, end, as_of, expected_cfg, failed_logins):
+def analyse(staff, recs, start, end, as_of, failed_logins):
     period_end = min(end, as_of)
     first_data = min((x["d"] for x in recs), default=start)
     live_start = max(start, first_data)
     live_days = days(live_start, period_end)
-    # The PM's standard as written in the template; not scaled for drafts.
 
     by_uid = collections.defaultdict(list)
     for x in recs:
@@ -289,7 +289,7 @@ def analyse(staff, recs, start, end, as_of, expected_cfg, failed_logins):
     total, valid = len(recs), sum(x["valid"] for x in recs)
     return {
         "live_start": live_start, "period_end": period_end, "live_days": live_days, "expected": exp_text(people),
-        "expected_cfg": expected_cfg, "people": people, "states": states, "outside": out_rows, "dq": dq,
+        "people": people, "states": states, "outside": out_rows, "dq": dq,
         "act": act, "outputs": outputs, "orphans": orphans, "failed_logins": failed_logins,
         "total": total, "valid": valid, "invalid": total - valid,
         "reasons": collections.Counter(x["reason"] for x in recs if x["reason"]),
@@ -595,7 +595,6 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--cycle", help="YYYY-MM: the cycle ending on the 23rd of that month (default: current cycle)")
     ap.add_argument("--as-of", help="YYYY-MM-DD: last day of data to include (default: today)")
-    ap.add_argument("--expected-days", type=int, default=DEFAULT_EXPECTED_DAYS)
     ap.add_argument("--refresh", action="store_true", help="re-download from Kobo instead of using the cache")
     args = ap.parse_args()
 
@@ -606,7 +605,7 @@ def main():
 
     raw, roster, fetched = load(args.refresh)
     staff, recs, failed = build(raw, roster, start, min(end, as_of))
-    a = analyse(staff, recs, start, end, as_of, args.expected_days, failed)
+    a = analyse(staff, recs, start, end, as_of, failed)
 
     tag = f"{cycle}" + ("_draft-" + a["period_end"].isoformat() if a["period_end"] < end else "")
     docx_path = os.path.join(REPORT_DIR, f"Field_Consultants_Report_{tag}.docx")
